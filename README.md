@@ -1,2 +1,2 @@
 # Intel based TEE benchmark
-This tool collects metrics of applications when excuted in an Intel based TEE (SGX) using Gramine.
+This tool collects applications metrics when excuted in an Intel based TEE (SGX) using Gramine.
