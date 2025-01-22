@@ -6,7 +6,12 @@ edition = "2021"
 [dependencies]
 clap = { version = "4.5.16", features = ["derive"] }
 serde = { version = "1.0.217", features = ["derive"] }
+rand = "0.8.5"
+rsa = "0.9.7"
 toml = "0.8.19"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
+[dependencies.pyo3]
+version = "0.23.3"
+features = ["auto-initialize"]

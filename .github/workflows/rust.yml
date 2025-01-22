@@ -11,12 +11,23 @@ env:
 
 jobs:
   build:
-
+    name: build
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Check out code
+      uses: actions/checkout@v4
     - name: Build
       run: cargo build --verbose
+
+  test:
+    name: test
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+    - name: Build docker image
+      run: docker build -t gramine-sdk .
     - name: Run tests
-      run: cargo test --verbose
+      run: docker run -it -v $(pwd):/workspace/benchmark -w /workspace/benchmark gramine-sdk /bin/sh -c ". /root/.cargo/env; cargo test --verbose"
