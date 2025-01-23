@@ -30,4 +30,4 @@ jobs:
     - name: Build docker image
       run: docker build -t gramine-sdk .
     - name: Run tests
-      run: docker run -it -v $(pwd):/workspace/benchmark -w /workspace/benchmark gramine-sdk /bin/sh -c ". /root/.cargo/env; cargo test --verbose"
+      run: docker run -v $(pwd):/workspace/benchmark -w /workspace/benchmark gramine-sdk /bin/sh -c ". /root/.cargo/env; cargo test --verbose"
