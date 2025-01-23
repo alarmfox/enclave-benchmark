@@ -61,6 +61,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
 # uname -r returns slightly different versions
 RUN VERSION=$(uname -r | awk -F _ '{print $1}' | awk -F - '{print $1}') && \
   MAJOR=$(uname -r | awk -F . '{print $1}') && \
+  echo $(uname -r) VERSION=$VERSION MAJOR=$MAJOR && \
   curl -O https://cdn.kernel.org/pub/linux/kernel/v$MAJOR.x/linux-$VERSION.tar.xz && \
   tar -xvf linux-$VERSION.tar.xz && \
   make -C linux-$VERSION/tools/perf install DESTDIR=/usr/local
