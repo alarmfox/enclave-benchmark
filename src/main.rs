@@ -4,10 +4,9 @@ use pyo3::{
 };
 use serde::Deserialize;
 use std::{
-    collections::HashMap,
-    fs::{create_dir, create_dir_all, write, File},
+    fs::{create_dir, create_dir_all, File},
     io::Read,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Command, Stdio},
 };
 
