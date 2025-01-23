@@ -54,6 +54,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
   libperl-dev \
   libbabeltrace-dev \
   libiberty-dev \
+  libunwind-dev \
   libzstd-dev
 
 # build perf against current kernel version 
