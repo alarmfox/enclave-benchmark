@@ -2,15 +2,20 @@ use pyo3::{
     types::{IntoPyDict, PyAnyMethods, PyDict, PyModule},
     Bound, PyAny, PyResult, Python,
 };
+use rsa::{
+    pkcs1::{self, EncodeRsaPrivateKey},
+    BigUint, RsaPrivateKey,
+};
 use serde::Deserialize;
 use std::{
+    collections::HashSet,
     fs::{create_dir, create_dir_all, File},
     io::Read,
     path::PathBuf,
     process::{Command, Stdio},
 };
 
-use clap::{arg, command, Error, Parser};
+use clap::{arg, command, Parser};
 use tracing::Level;
 
 #[derive(Parser)]
@@ -26,12 +31,17 @@ struct Cli {
 
 #[derive(Deserialize, Debug)]
 struct Config {
-    private_key_path: PathBuf,
+    globals: GlobalParams,
+    tasks: Vec<Task>,
+}
+
+#[derive(Deserialize, Debug)]
+struct GlobalParams {
     sample_size: u32,
     num_threads: Vec<usize>,
     epc_size: Vec<String>,
-    tasks: Vec<Task>,
     output_directory: PathBuf,
+    extra_perf_events: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -46,6 +56,7 @@ struct Profiler {
     private_key_path: PathBuf,
     output_directory: PathBuf,
     experiments: Vec<Experiment>,
+    perf_events: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -85,8 +96,8 @@ sgx.trusted_files = [
         sample_size: u32,
         num_threads: Vec<usize>,
         epc_size: Vec<String>,
+        extra_perf_events: Option<Vec<String>>,
         output_directory: PathBuf,
-        private_key_path: PathBuf,
     ) -> Result<Self, std::io::Error> {
         let mut experiments: Vec<Experiment> = vec![];
 
@@ -100,26 +111,47 @@ sgx.trusted_files = [
         }
         create_dir_all(&output_directory)?;
 
+        let private_key_path = output_directory.join("private_key.pem");
+        create_dir_all(&output_directory).unwrap();
+        let mut rng = rand::thread_rng();
+        let private_key = RsaPrivateKey::new_with_exp(&mut rng, 3072, &BigUint::new([3].into()))
+            .expect("failed to generate a key");
+
+        private_key
+            .write_pkcs1_pem_file(&private_key_path, pkcs1::LineEnding::default())
+            .unwrap();
+
+        let mut perf_events = HashSet::from([
+            "user_time".to_string(),
+            "system_time".to_string(),
+            "duration_time".to_string(),
+            "cycles".to_string(),
+            "instructions".to_string(),
+            "cache-misses".to_string(),
+        ]);
+
+        for extra_perf_event in extra_perf_events.unwrap_or_default() {
+            perf_events.insert(extra_perf_event);
+        }
+        let perf_events = Vec::from_iter(perf_events.iter().map(String::from));
         Ok(Profiler {
             private_key_path,
             sample_size,
             experiments,
             output_directory,
+            perf_events,
         })
     }
 
-    #[tracing::instrument(skip(self), level = "trace", ret)]
+    #[tracing::instrument(level = "trace", ret)]
     fn build_and_sign_enclave(
         self: &Self,
-        base_path: &PathBuf,
         executable: &PathBuf,
+        manifest_path: &PathBuf,
+        sig_path: &PathBuf,
         experiment: &Experiment,
     ) -> PyResult<()> {
-        let program_name = executable.file_name().unwrap().to_str().unwrap();
-        let manifest_path = base_path.join(PathBuf::from(format!("{}.manifest.sgx", program_name)));
-
-        let sig_path = base_path.join(PathBuf::from(format!("{}.sig", program_name)));
-
+        // ported from https://gramine.readthedocs.io/en/stable/python/api.html
         Python::with_gil(|py| {
             // build enclave
             let gramine = PyModule::import(py, "graminelibos")?;
@@ -139,12 +171,9 @@ sgx.trusted_files = [
                 .extract()?;
 
             manifest.call_method0("check")?;
-            //let expanded: Bound<'_, PyAny> = manifest
-            //    .call_method0("expand_all_trusted_files")?
-            //    .extract()?;
+            manifest.call_method0("expand_all_trusted_files")?;
 
             let manifest_data: String = manifest.call_method0("dumps")?.extract()?;
-            println!("{}", manifest_path.to_str().unwrap());
             std::fs::write(&manifest_path, manifest_data)?;
 
             let today = datetime.getattr("date")?.call_method0("today")?;
@@ -167,29 +196,55 @@ sgx.trusted_files = [
         })
     }
 
-    #[tracing::instrument(level = "info", ret)]
+    #[tracing::instrument(skip(self), level = "info", ret)]
     fn profile(self: &Self, task: Task) -> Result<(), Box<dyn std::error::Error>> {
         // enclave only
         let program_name = task.executable.file_name().unwrap().to_str().unwrap();
         let task_path = self.output_directory.join(program_name);
         create_dir(&task_path)?;
         for experiment in &self.experiments {
-            let experiment_path =
-                task_path.join(format!("th{}-{}", experiment.threads, experiment.epc_size));
-            create_dir(&experiment_path)?;
-            self.build_and_sign_enclave(&experiment_path, &task.executable, experiment)?;
+            let mut args = task.args.clone().unwrap_or_default();
+            let manifest_path =
+                task_path.join(PathBuf::from(format!("{}.manifest.sgx", program_name)));
+
+            let sig_path = task_path.join(PathBuf::from(format!("{}.sig", program_name)));
+            args.insert(0, manifest_path.to_str().unwrap().to_string());
+
+            self.build_and_sign_enclave(&task.executable, &manifest_path, &sig_path, experiment)?;
+            self.run_with_perf(
+                &PathBuf::from("gramine-sgx"),
+                Some(args),
+                &task_path.join(format!(
+                    "th{}-{}.csv",
+                    experiment.threads, experiment.epc_size
+                )),
+            )?;
         }
+        self.run_with_perf(&task.executable, task.args, &task_path.join("no_sgx.csv"))?;
 
         Ok(())
     }
 
     #[tracing::instrument(level = "trace", ret)]
-    fn run_outside_enclave(self: &Self, t: Task) -> Result<(), Box<dyn std::error::Error>> {
-        let args = t.args.unwrap_or_default();
-        let mut process = Command::new("sh")
-            .arg("-c")
-            .arg(t.executable)
-            .args(args)
+    fn run_with_perf(
+        self: &Self,
+        executable: &PathBuf,
+        args: Option<Vec<String>>,
+        outfile: &PathBuf,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let executable_args = args.unwrap_or_default();
+        let mut process = Command::new("perf")
+            .arg("stat")
+            .arg("--output")
+            .arg(outfile)
+            .arg("--repeat")
+            .arg(self.sample_size.to_string())
+            .arg("--field-separator")
+            .arg(",")
+            .arg("--event")
+            .arg(self.perf_events.join(","))
+            .arg(executable)
+            .args(executable_args)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()?;
@@ -218,15 +273,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = File::open(cli.config_path)?.read_to_string(&mut config)?;
     let config = toml::from_str::<Config>(config.as_str())?;
     let profiler = Profiler::new(
-        config.sample_size,
-        config.num_threads,
-        config.epc_size,
-        config.output_directory,
-        config.private_key_path,
+        config.globals.sample_size,
+        config.globals.num_threads,
+        config.globals.epc_size,
+        config.globals.extra_perf_events,
+        config.globals.output_directory,
     )?;
 
     for task in config.tasks {
-        profiler.run_outside_enclave(task)?;
+        profiler.profile(task)?;
     }
     Ok(())
 }
@@ -235,21 +290,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 mod test {
     use std::fs::remove_dir_all;
 
-    use rsa::{
-        pkcs1::{self, EncodeRsaPrivateKey},
-        BigUint, RsaPrivateKey,
-    };
-
     use crate::*;
     #[test]
     fn test_parse_config() {
         let config = toml::from_str::<Config>(
             r#"
+            [globals]
             sample_size = 3
             epc_size = ["64M", "128M"]
             num_threads = [1]
             output_directory = "/test"
-            private_key_path = "/tmp/test"
             [[tasks]]
             executable = "/bin/ls"
             [[tasks]]
@@ -260,60 +310,58 @@ mod test {
         .unwrap();
         let config = dbg!(config);
         assert_eq!(2, config.tasks.len());
-        assert_eq!(3, config.sample_size);
+        assert_eq!(3, config.globals.sample_size);
         let args = config.tasks[1].clone().args.unwrap();
         assert_eq!(2, args.len());
-        assert_eq!(1, config.num_threads.len());
-        assert_eq!(2, config.epc_size.len());
-        assert_eq!(1, config.num_threads[0]);
+        assert_eq!(1, config.globals.num_threads.len());
+        assert_eq!(2, config.globals.epc_size.len());
+        assert_eq!(1, config.globals.num_threads[0]);
     }
 
     #[test]
     fn test_simple_profile() {
         let config = toml::from_str::<Config>(
             r#"
+            [globals]
             sample_size = 3
             epc_size = ["64M", "128M"]
             num_threads = [1]
             output_directory = "/tmp/test"
-            private_key_path = "/tmp/test/key"
+            extra_perf_events = ["cycles"]
             [[tasks]]
             executable = "/bin/ls"
             "#,
         )
         .unwrap();
         Profiler::new(
-            config.sample_size,
-            config.num_threads,
-            config.epc_size,
-            config.output_directory.clone(),
-            config.private_key_path,
+            config.globals.sample_size,
+            config.globals.num_threads,
+            config.globals.epc_size,
+            None,
+            config.globals.output_directory.clone(),
         )
         .unwrap()
-        .run_outside_enclave(config.tasks[0].clone())
+        .run_with_perf(
+            &config.tasks[0].executable,
+            config.tasks[0].clone().args,
+            &PathBuf::from("/tmp/test/test.csv"),
+        )
         .unwrap();
 
-        remove_dir_all(config.output_directory).unwrap();
+        remove_dir_all(config.globals.output_directory).unwrap();
     }
 
     #[test]
     fn build_and_sign_enclave() {
         let output_directory = PathBuf::from("test");
-        let private_key_path = output_directory.join("private_key.pem");
-        create_dir_all(&output_directory).unwrap();
-        let mut rng = rand::thread_rng();
-        let private_key = RsaPrivateKey::new_with_exp(&mut rng, 3072, &BigUint::new([3].into()))
-            .expect("failed to generate a key");
-
-        private_key
-            .write_pkcs1_pem_file(&private_key_path, pkcs1::LineEnding::default())
-            .unwrap();
+        let manifest_path = output_directory.join("app.manifest.sgx");
+        let sig_path = output_directory.join("app.sig");
         let profiler = Profiler::new(
             1,
             vec![1],
             vec!["64M".to_string()],
+            None,
             output_directory.clone(),
-            private_key_path,
         )
         .unwrap();
 
@@ -322,7 +370,12 @@ mod test {
             epc_size: "64M".into(),
         };
         profiler
-            .build_and_sign_enclave(&output_directory, &PathBuf::from("/bin/ls"), &experiment)
+            .build_and_sign_enclave(
+                &PathBuf::from("/bin/ls"),
+                &manifest_path,
+                &sig_path,
+                &experiment,
+            )
             .unwrap();
         remove_dir_all(output_directory).unwrap();
     }

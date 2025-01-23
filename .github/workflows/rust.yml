@@ -37,7 +37,7 @@ jobs:
         path: /tmp/.docker-cache
         key: ${{ runner.os }}-docker-${{ hashFiles('**/Dockerfile') }}
         restore-keys: |
-          ${{ runner.os }}-docker-
+          ${{ runner.os }}-docker-${{ hashFiles('**/Dockerfile') }}
 
     - name: Load Docker cache
       run: |
@@ -57,4 +57,4 @@ jobs:
         docker save gramine-sdk > /tmp/.docker-cache/cache.tar
 
     - name: Run tests
-      run: docker run -v $(pwd):/workspace/benchmark -w /workspace/benchmark gramine-sdk /bin/sh -c ". /root/.cargo/env; cargo test --verbose"
+      run: docker run --privileged -v $(pwd):/workspace/benchmark -w /workspace/benchmark gramine-sdk /bin/sh -c ". /root/.cargo/env; cargo test --verbose"

@@ -6,11 +6,13 @@ WORKDIR /tmp
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
   vim \
   curl \
+  flex \
   gnupg2 \
   cmake \
   psmisc \
   make \
   build-essential \
+  binutils-dev \
   autoconf \ 
   bison \
   gawk \
@@ -18,22 +20,49 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
   ninja-build \
   pkg-config \
   meson \
-  libprotobuf-c-dev \
-  protobuf-c-compiler \
-  libprotobuf-c-dev \
   protobuf-c-compiler \
   python3 \ 
   python3-click \
   python3-jinja2 \
   python3-pip \
   python3-pyelftools \
-  python3-pyelftools \
+  python3-setuptools \
   python3-tomli \
   python3-tomli-w \
   python3-voluptuous \
   python3-cryptography \
   python3-protobuf \
-  python3-dev
+  python3-dev \
+  libprotobuf-c-dev \
+  libzstd1 \ 
+  libdwarf-dev \
+  libdw-dev \
+  libcap-dev \
+  libelf-dev \
+  libnuma-dev \
+  libssl-dev \
+  libdwarf-dev \
+  zlib1g-dev \
+  liblzma-dev \
+  libaio-dev \
+  libtraceevent-dev \
+  libtracefs-dev \
+  debuginfod \
+  libpfm4-dev \
+  libslang2-dev \
+  systemtap-sdt-dev \
+  libperl-dev \
+  libbabeltrace-dev \
+  libiberty-dev \
+  libzstd-dev
+
+# build perf against current kernel version 
+# assuming kernel v6.x
+RUN VERSION=$(uname -r | awk -F _ '{print $1}') && \
+  MAJOR=$(uname -r | awk -F . '{print $1}') && \
+  curl -O https://cdn.kernel.org/pub/linux/kernel/v$MAJOR.x/linux-$VERSION.tar.xz && \
+  tar -xvf linux-$VERSION.tar.xz && \
+  make -C linux-$VERSION/tools/perf install DESTDIR=/usr/local
 
 # configure intel sgx sdk
 RUN curl -fsSLo /usr/share/keyrings/intel-sgx-deb.asc https://download.01.org/intel-sgx/sgx_repo/ubuntu/intel-sgx-deb.key && \
@@ -45,6 +74,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y libsgx-e
 RUN curl -O https://download.01.org/intel-sgx/sgx-dcap/1.22/linux/distro/ubuntu24.04-server/sgx_linux_x64_sdk_2.25.100.3.bin
 RUN chmod +x sgx_linux_x64_sdk_2.25.100.3.bin
 RUN ./sgx_linux_x64_sdk_2.25.100.3.bin --prefix /opt/intel/
+RUN rm sgx_linux_x64_sdk_2.25.100.3.bin
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
   libsgx-enclave-common-dev \
