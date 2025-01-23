@@ -62,7 +62,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
 # uname -r returns slightly different versions
 RUN VERSION=$(uname -r | awk -F '_' '{print $1}' | awk -F '-' '{print $1}' | awk -F '.' '{if ($3 == 0) print $1 "." $2; else print $1 "." $2 "." $3}') && \
   MAJOR=$(uname -r | awk -F . '{print $1}') && \
-  echo $(uname -r) VERSION=$VERSION MAJOR=$MAJOR && \
   curl -O https://cdn.kernel.org/pub/linux/kernel/v$MAJOR.x/linux-$VERSION.tar.xz && \
   tar -xvf linux-$VERSION.tar.xz && \
   make -C linux-$VERSION/tools/perf install DESTDIR=/usr/local
@@ -125,4 +124,6 @@ RUN usermod -aG sgx_prv root
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y
 
 RUN echo 'source $HOME/.cargo/env' >> /root/.bashrc
+ENV PATH="/root/.cargo/bin:${PATH}"
 
+WORKDIR /workspace

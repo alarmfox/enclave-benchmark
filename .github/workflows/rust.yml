@@ -52,4 +52,4 @@ jobs:
         docker save gramine-sdk -o /tmp/.docker-cache/gramine-sdk.tar
 
     - name: Run tests
-      run: docker run --privileged -v $(pwd):/workspace/benchmark -w /workspace/benchmark gramine-sdk /bin/sh -c ". /root/.cargo/env; cargo test --verbose"
+      run: docker run --privileged -v $(pwd):/workspace/benchmark -w /workspace/benchmark gramine-sdk cargo test --verbose
