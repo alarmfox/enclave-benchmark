@@ -29,32 +29,11 @@ jobs:
     steps:
     - name: Check out code
       uses: actions/checkout@v4
-    
-    # Cache Docker layers
-    - name: Cache Docker layers
-      uses: actions/cache@v3
-      with:
-        path: /tmp/.docker-cache
-        key: ${{ runner.os }}-docker-${{ hashFiles('**/Dockerfile') }}
-        restore-keys: |
-          ${{ runner.os }}-docker-${{ hashFiles('**/Dockerfile') }}
-
-    - name: Load Docker cache
-      run: |
-        mkdir -p /tmp/.docker-cache
-        if [ -f /tmp/.docker-cache/cache.tar ]; then
-          docker load < /tmp/.docker-cache/cache.tar
-        fi
-
+ 
     # Build Docker image
     - name: Build Docker image
       run: |
-        docker build -t gramine-sdk . --cache-from /tmp/.docker-cache
-
-    - name: Save Docker cache
-      run: |
-        mkdir -p /tmp/.docker-cache
-        docker save gramine-sdk > /tmp/.docker-cache/cache.tar
+        docker build -t gramine-sdk .
 
     - name: Run tests
       run: docker run --privileged -v $(pwd):/workspace/benchmark -w /workspace/benchmark gramine-sdk /bin/sh -c ". /root/.cargo/env; cargo test --verbose"
