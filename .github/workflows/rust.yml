@@ -2,12 +2,15 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main"]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
   pull_request:
     branches: [ "main" ]
-
-env:
-  CARGO_TERM_COLOR: always
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
 
 jobs:
   build:
@@ -29,11 +32,24 @@ jobs:
     steps:
     - name: Check out code
       uses: actions/checkout@v4
- 
-    # Build Docker image
+
+    - uses: actions/cache@v4
+      with:
+        path: /tmp/.docker-cache
+        key: ${{ runner.os }}-${{ hashFiles('Dockerfile') }}
+        restore-keys: |
+          ${{ runner.os }}-
+
+    - name: Load Docker image from cache
+      if: steps.cache.outputs.cache-hit == 'true'
+      run: |
+        docker load -i /tmp/.docker-cache/gramine-sdk.tar
+
     - name: Build Docker image
+      if: steps.cache.outputs.cache-hit != 'true'
       run: |
         docker build -t gramine-sdk .
+        docker save gramine-sdk -o /tmp/.docker-cache/gramine-sdk.tar
 
     - name: Run tests
       run: docker run --privileged -v $(pwd):/workspace/benchmark -w /workspace/benchmark gramine-sdk /bin/sh -c ". /root/.cargo/env; cargo test --verbose"
