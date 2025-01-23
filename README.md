@@ -41,6 +41,27 @@ A workload file has 2 sections:
 * globals: parameters used to generate experiments, output directory and add custom perf_events;
 * task: each task is a program to benchmark and has an executable and args;
 
+Results will be stored in `output_directory` and it will have the following structure:
+
+```sh
+# tree -L 2 /tmp/test
+
+/tmp/test
+|-- dd
+|   |-- dd.manifest.sgx
+|   |-- dd.sig
+|   `-- no_sgx.csv
+|   `-- dd-1-64M.csv
+|   `-- dd-1-128M.csv
+|-- ls
+|   |-- ls.manifest.sgx
+|   |-- ls.sig
+|   `-- no_sgx.csv
+|   `-- ls-1-64M.csv
+|   `-- ls-1-128M.csv
+`-- private_key.pem
+```
+
 ## Python bindings
 This projects uses [Gramine Python API](https://gramine.readthedocs.io/en/stable/python/api.html) 
 with [PyO3](https://github.com/PyO3/pyo3) and needs `python3-dev[evel]` package. You will need 

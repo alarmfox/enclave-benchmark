@@ -215,8 +215,8 @@ sgx.trusted_files = [
                 &PathBuf::from("gramine-sgx"),
                 Some(args),
                 &task_path.join(format!(
-                    "th{}-{}.csv",
-                    experiment.threads, experiment.epc_size
+                    "{}-{}-{}.csv",
+                    program_name, experiment.threads, experiment.epc_size
                 )),
             )?;
         }
