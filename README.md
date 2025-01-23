@@ -26,7 +26,7 @@ An example file is stored in `examples/basic.toml`.
 sample_size = 10
 epc_size = ["64M", "128M"]
 output_directory = "/tmp/test"
-num_threads = [1]
+num_threads = [1, 2, 4]
 extra_perf_events = ["cpu-clock"]
 
 [[tasks]]
@@ -46,19 +46,19 @@ Results will be stored in `output_directory` and it will have the following stru
 ```sh
 # tree -L 2 /tmp/test
 
-/tmp/test
+/tmp/test/
 |-- dd
+|   |-- dd-1.no_sgx.csv
+|   |-- dd-2.no_sgx.csv
+|   |-- dd-4.no_sgx.csv
 |   |-- dd.manifest.sgx
-|   |-- dd.sig
-|   `-- no_sgx.csv
-|   `-- dd-1-64M.csv
-|   `-- dd-1-128M.csv
+|   `-- dd.sig
 |-- ls
+|   |-- ls-1.no_sgx.csv
+|   |-- ls-2.no_sgx.csv
+|   |-- ls-4.no_sgx.csv
 |   |-- ls.manifest.sgx
-|   |-- ls.sig
-|   `-- no_sgx.csv
-|   `-- ls-1-64M.csv
-|   `-- ls-1-128M.csv
+|   `-- ls.sig
 `-- private_key.pem
 ```
 

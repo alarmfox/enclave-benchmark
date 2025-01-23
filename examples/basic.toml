@@ -2,7 +2,7 @@
 sample_size = 10
 epc_size = ["64M", "128M"]
 output_directory = "/tmp/test"
-num_threads = [1]
+num_threads = [1, 2, 4]
 extra_perf_events = ["cpu-clock"]
 
 [[tasks]]

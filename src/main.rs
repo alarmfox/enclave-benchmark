@@ -48,6 +48,7 @@ struct GlobalParams {
 struct Task {
     executable: PathBuf,
     args: Option<Vec<String>>,
+    custom_manifest_path: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -55,14 +56,9 @@ struct Profiler {
     sample_size: u32,
     private_key_path: PathBuf,
     output_directory: PathBuf,
-    experiments: Vec<Experiment>,
     perf_events: Vec<String>,
-}
-
-#[derive(Debug)]
-struct Experiment {
-    threads: usize,
-    epc_size: String,
+    n_threads: Vec<usize>,
+    epc_size: Vec<String>,
 }
 
 impl Profiler {
@@ -84,6 +80,7 @@ sgx.profile.enable = "all"
 sgx.profile.with_stack = true
 sys.enable_sigterm_injection = true
 sgx.enclave_size = "{{ epc_size }}"
+sgx.max_threads = {{ max_threads }}
 sgx.edmm_enable = false
 
 sgx.trusted_files = [
@@ -94,21 +91,11 @@ sgx.trusted_files = [
 "#;
     fn new(
         sample_size: u32,
-        num_threads: Vec<usize>,
+        n_threads: Vec<usize>,
         epc_size: Vec<String>,
         extra_perf_events: Option<Vec<String>>,
         output_directory: PathBuf,
     ) -> Result<Self, std::io::Error> {
-        let mut experiments: Vec<Experiment> = vec![];
-
-        for &threads in &num_threads {
-            for cache in &epc_size {
-                experiments.push(Experiment {
-                    threads,
-                    epc_size: cache.to_string(),
-                });
-            }
-        }
         create_dir_all(&output_directory)?;
 
         let private_key_path = output_directory.join("private_key.pem");
@@ -137,7 +124,8 @@ sgx.trusted_files = [
         Ok(Profiler {
             private_key_path,
             sample_size,
-            experiments,
+            n_threads,
+            epc_size,
             output_directory,
             perf_events,
         })
@@ -147,9 +135,11 @@ sgx.trusted_files = [
     fn build_and_sign_enclave(
         self: &Self,
         executable: &PathBuf,
+        custom_manifest_path: Option<PathBuf>,
         manifest_path: &PathBuf,
         sig_path: &PathBuf,
-        experiment: &Experiment,
+        max_threads: &usize,
+        epc_size: &String,
     ) -> PyResult<()> {
         // ported from https://gramine.readthedocs.io/en/stable/python/api.html
         Python::with_gil(|py| {
@@ -162,13 +152,24 @@ sgx.trusted_files = [
             let sign_with_local_key = gramine.getattr("sign_with_local_key")?;
             let args = [
                 ("executable", executable.to_str().unwrap()),
-                ("epc_size", &experiment.epc_size),
+                ("epc_size", &epc_size),
+                ("max_threads", &max_threads.to_string()),
             ]
             .into_py_dict(py)?;
 
-            let manifest: Bound<'_, PyAny> = manifest
-                .call_method1("from_template", (Self::MANIFEST.trim(), args))?
-                .extract()?;
+            let manifest: Bound<'_, PyAny> = match custom_manifest_path {
+                Some(p) => {
+                    let mut f = File::open(p)?;
+                    let mut buf = String::new();
+                    f.read_to_string(&mut buf)?;
+                    manifest
+                        .call_method1("from_template", (buf.trim(), args))?
+                        .extract()?
+                }
+                None => manifest
+                    .call_method1("from_template", (Self::MANIFEST.trim(), args))?
+                    .extract()?,
+            };
 
             manifest.call_method0("check")?;
             manifest.call_method0("expand_all_trusted_files")?;
@@ -198,29 +199,41 @@ sgx.trusted_files = [
 
     #[tracing::instrument(skip(self), level = "info", ret)]
     fn profile(self: &Self, task: Task) -> Result<(), Box<dyn std::error::Error>> {
-        // enclave only
         let program_name = task.executable.file_name().unwrap().to_str().unwrap();
         let task_path = self.output_directory.join(program_name);
         create_dir(&task_path)?;
-        for experiment in &self.experiments {
-            let mut args = task.args.clone().unwrap_or_default();
-            let manifest_path =
-                task_path.join(PathBuf::from(format!("{}.manifest.sgx", program_name)));
+        for threads in &self.n_threads {
+            for epc in &self.epc_size {
+                let mut args = task.args.clone().unwrap_or_default();
+                let manifest_path =
+                    task_path.join(PathBuf::from(format!("{}.manifest.sgx", program_name)));
 
-            let sig_path = task_path.join(PathBuf::from(format!("{}.sig", program_name)));
-            args.insert(0, manifest_path.to_str().unwrap().to_string());
+                let sig_path = task_path.join(PathBuf::from(format!("{}.sig", program_name)));
+                args.insert(0, manifest_path.to_str().unwrap().to_string());
 
-            self.build_and_sign_enclave(&task.executable, &manifest_path, &sig_path, experiment)?;
+                self.build_and_sign_enclave(
+                    &task.executable,
+                    task.custom_manifest_path.clone(),
+                    &manifest_path,
+                    &sig_path,
+                    threads,
+                    epc,
+                )?;
+                //self.run_with_perf(
+                //    &PathBuf::from("gramine-sgx"),
+                //    args,
+                //    &task_path.join(format!("{}-{}-{}.csv", program_name, threads, epc)),
+                //)?;
+            }
+        }
+        for threads in &self.n_threads {
+            let args = task.args.clone().unwrap_or_default();
             self.run_with_perf(
-                &PathBuf::from("gramine-sgx"),
-                Some(args),
-                &task_path.join(format!(
-                    "{}-{}-{}.csv",
-                    program_name, experiment.threads, experiment.epc_size
-                )),
+                &task.executable,
+                args,
+                &task_path.join(format!("{}-{}.no_sgx.csv", program_name, threads)),
             )?;
         }
-        self.run_with_perf(&task.executable, task.args, &task_path.join("no_sgx.csv"))?;
 
         Ok(())
     }
@@ -229,10 +242,9 @@ sgx.trusted_files = [
     fn run_with_perf(
         self: &Self,
         executable: &PathBuf,
-        args: Option<Vec<String>>,
+        executable_args: Vec<String>,
         outfile: &PathBuf,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let executable_args = args.unwrap_or_default();
         let mut process = Command::new("perf")
             .arg("stat")
             .arg("--output")
@@ -343,7 +355,7 @@ mod test {
         .unwrap()
         .run_with_perf(
             &config.tasks[0].executable,
-            config.tasks[0].clone().args,
+            config.tasks[0].clone().args.unwrap_or_default(),
             &PathBuf::from("/tmp/test/test.csv"),
         )
         .unwrap();
@@ -365,16 +377,14 @@ mod test {
         )
         .unwrap();
 
-        let experiment = Experiment {
-            threads: 1,
-            epc_size: "64M".into(),
-        };
         profiler
             .build_and_sign_enclave(
                 &PathBuf::from("/bin/ls"),
+                None,
                 &manifest_path,
                 &sig_path,
-                &experiment,
+                &1,
+                &"64M".to_string(),
             )
             .unwrap();
         remove_dir_all(output_directory).unwrap();
