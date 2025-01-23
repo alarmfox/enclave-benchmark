@@ -59,7 +59,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
 # build perf against current kernel version 
 # depending on the underling distro 
 # uname -r returns slightly different versions
-RUN VERSION=$(uname -r | awk -F _ '{print $1}' | awk -F - '{print $1}') && \
+RUN VERSION=$(uname -r | awk -F '_' '{print $1}' | awk -F '-' '{print $1}' | awk -F '.' '{if ($3 == 0) print $1 "." $2; else print $1 "." $2 "." $3}') && \
   MAJOR=$(uname -r | awk -F . '{print $1}') && \
   echo $(uname -r) VERSION=$VERSION MAJOR=$MAJOR && \
   curl -O https://cdn.kernel.org/pub/linux/kernel/v$MAJOR.x/linux-$VERSION.tar.xz && \
