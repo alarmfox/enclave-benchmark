@@ -1,0 +1,14 @@
+[globals]
+sample_size = 10
+epc_size = ["64M", "128M"]
+output_directory = "/tmp/test"
+num_threads = [1]
+extra_perf_events = ["cpu-clock"]
+
+[[tasks]]
+executable = "/bin/ls"
+args = ["-l", "-a"]
+
+[[tasks]]
+executable = "/bin/dd"
+args = ["if=/dev/zero", "of=/dev/null", "count=10000"]
