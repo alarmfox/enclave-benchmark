@@ -12,3 +12,7 @@ args = ["-l", "-a"]
 [[tasks]]
 executable = "/bin/dd"
 args = ["if=/dev/zero", "of=/dev/null", "count=10000"]
+
+[[tasks]]
+executable = "/usr/bin/make"
+args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "clean", "app"]

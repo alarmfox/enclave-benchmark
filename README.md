@@ -36,10 +36,17 @@ args = ["-l", "-a"]
 [[tasks]]
 executable = "/bin/dd"
 args = ["if=/dev/zero", "of=/dev/null", "count=10000"]
+
+[[tasks]]
+executable = "/usr/bin/make"
+args = ["-C", "/path/to/some/project", "-j", "{{ num_threads }}"]
 ```
 A workload file has 2 sections:
 * globals: parameters used to generate experiments, output directory and add custom perf_events;
 * task: each task is a program to benchmark and has an executable and args;
+
+### Variables expansion
+The `toml` file is dynamic. For example, if an application executes with different number of threads you can mark the parameter with the `{{ num_threads }}` placeholder. On each iteration it will be populated with an element from `globals.num_threads` (see `make` task in the example above).
 
 Results will be stored in `output_directory` and it will have the following structure:
 
@@ -59,7 +66,21 @@ Results will be stored in `output_directory` and it will have the following stru
 |   |-- ls-4.no_sgx.csv
 |   |-- ls.manifest.sgx
 |   `-- ls.sig
+|-- make
+|   |-- make-1.no_sgx.csv
+|   |-- make-2.no_sgx.csv
+|   |-- make-4.no_sgx.csv
+|   |-- make.manifest.sgx
+|   `-- make.sig
 `-- private_key.pem
+
+```
+
+### Running
+To run the example, clone the repository and:
+
+```sh
+# cargo run -- -c examples/basic.toml -v
 ```
 
 ## Python bindings

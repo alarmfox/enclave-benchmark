@@ -1,3 +1,4 @@
+use handlebars::Handlebars;
 use pyo3::{
     types::{IntoPyDict, PyAnyMethods, PyDict, PyModule},
     Bound, PyAny, PyResult, Python,
@@ -8,7 +9,7 @@ use rsa::{
 };
 use serde::Deserialize;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs::{create_dir, create_dir_all, File},
     io::Read,
     path::PathBuf,
@@ -197,6 +198,21 @@ sgx.trusted_files = [
         })
     }
 
+    fn process_args_with_placeholders(
+        args: Vec<String>,
+        context: &HashMap<&str, String>,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let handlebars = Handlebars::new();
+        let mut processed_args = Vec::new();
+
+        for arg in args {
+            let rendered = handlebars.render_template(&arg, &context)?;
+            processed_args.push(rendered);
+        }
+
+        Ok(processed_args)
+    }
+
     #[tracing::instrument(skip(self), level = "info", ret)]
     fn profile(self: &Self, task: Task) -> Result<(), Box<dyn std::error::Error>> {
         let program_name = task.executable.file_name().unwrap().to_str().unwrap();
@@ -204,7 +220,11 @@ sgx.trusted_files = [
         create_dir(&task_path)?;
         for threads in &self.n_threads {
             for epc in &self.epc_size {
-                let mut args = task.args.clone().unwrap_or_default();
+                let context = HashMap::from([("num_threads", threads.to_string())]);
+                let mut args = Self::process_args_with_placeholders(
+                    task.args.clone().unwrap_or_default(),
+                    &context,
+                )?;
                 let manifest_path =
                     task_path.join(PathBuf::from(format!("{}.manifest.sgx", program_name)));
 
@@ -227,7 +247,11 @@ sgx.trusted_files = [
             }
         }
         for threads in &self.n_threads {
-            let args = task.args.clone().unwrap_or_default();
+            let context = HashMap::from([("num_threads", threads.to_string())]);
+            let args = Self::process_args_with_placeholders(
+                task.args.clone().unwrap_or_default(),
+                &context,
+            )?;
             self.run_with_perf(
                 &task.executable,
                 args,
