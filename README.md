@@ -13,6 +13,12 @@ meson setup build/ \
 ```
 For more information, refer to [Build Gramine from source](https://gramine.readthedocs.io/en/stable/devel/building.html).
 
+### Running
+To run the example, clone the repository and execute:
+
+```sh
+# cargo run -- -c examples/example.toml -v
+```
 ## Usage
 The application takes a `toml` file as input and performs sequentials benchmark using `perf`
 saving results in `csv`.
@@ -20,19 +26,15 @@ saving results in `csv`.
 ***Warning***: currently, enclave are built using a simple manifest file and only single binary 
 applications are allowed. In the future, options to specify custom manifest will be addded.
 
-An example file is stored in `examples/basic.toml`.
+An example file is stored in `examples/example.toml`.
 
 ```toml
 [globals]
 sample_size = 10
 epc_size = ["64M", "128M"]
 output_directory = "/tmp/test"
-num_threads = [1, 2, 4]
+num_threads = [2, 4]
 extra_perf_events = ["cpu-clock"]
-
-[[tasks]]
-executable = "/bin/ls"
-args = ["-l", "-a"]
 
 [[tasks]]
 executable = "/bin/dd"
@@ -40,7 +42,12 @@ args = ["if=/dev/zero", "of=/dev/null", "count=10000"]
 
 [[tasks]]
 executable = "/usr/bin/make"
-args = ["-C", "/path/to/some/project", "-j", "{{ num_threads }}"]
+args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}"]
+
+[[tasks]]
+executable = "examples/simple-writer/writer"
+args = ["{{ output_directory }}"]
+storage_type = ["encrypted", "plaintext", "tmpfs", "trusted"]
 ```
 A workload file has 2 sections:
 * globals: parameters used to generate experiments, output directory and add custom perf_events;
@@ -49,40 +56,69 @@ A workload file has 2 sections:
 ### Variables expansion
 The `toml` file is dynamic. For example, if an application executes with different number of threads you can mark the parameter with the `{{ num_threads }}` placeholder. On each iteration it will be populated with an element from `globals.num_threads` (see `make` task in the example above).
 
-Results will be stored in `output_directory` and it will have the following structure:
+Each task can specify a `storage_type` array (see `writer` task in the example above). Supported storage are:
+* encrypted: Gramine encrypted directory with an hardcoded key;
+* plaintext: simple storage with no integrity check and no encryption;
+* tmpfs: an in memory filesystem similar to tmpfs which is encrypted according to Gramine;
+* trusted: storage with integrity check and `chroot` environment;
+
+Results will be stored in `output_directory` and it will have the following structure (output reported only for task *writer*):
 
 ```sh
-# tree -L 2 /tmp/test
+# tree -L 4 /tmp/test
 
 /tmp/test/
-|-- dd
-|   |-- dd-1.no_sgx.csv
-|   |-- dd-2.no_sgx.csv
-|   |-- dd-4.no_sgx.csv
-|   |-- dd.manifest.sgx
-|   `-- dd.sig
-|-- ls
-|   |-- ls-1.no_sgx.csv
-|   |-- ls-2.no_sgx.csv
-|   |-- ls-4.no_sgx.csv
-|   |-- ls.manifest.sgx
-|   `-- ls.sig
-|-- make
-|   |-- make-1.no_sgx.csv
-|   |-- make-2.no_sgx.csv
-|   |-- make-4.no_sgx.csv
-|   |-- make.manifest.sgx
-|   `-- make.sig
-`-- private_key.pem
-
+|-- writer
+|   |-- gramine-sgx
+|   |   |-- writer-2-128M
+|   |   |   |-- writer-2-128M-encrypted.csv
+|   |   |   |-- writer-2-128M-plaintext.csv
+|   |   |   |-- writer-2-128M-tmpfs.csv
+|   |   |   |-- writer-2-128M-trusted.csv
+|   |   |   |-- writer.manifest.sgx
+|   |   |   |-- writer.sig
+|   |   |   |-- encrypted
+|   |   |   |-- plaintext
+|   |   |   `-- trusted
+|   |   |-- writer-2-64M
+|   |   |   |-- writer-2-64M-encrypted.csv
+|   |   |   |-- writer-2-64M-plaintext.csv
+|   |   |   |-- writer-2-64M-tmpfs.csv
+|   |   |   |-- writer-2-64M-trusted.csv
+|   |   |   |-- writer.manifest.sgx
+|   |   |   |-- writer.sig
+|   |   |   |-- encrypted
+|   |   |   |-- plaintext
+|   |   |   `-- trusted
+|   |   |-- writer-4-128M
+|   |   |   |-- writer-4-128M-encrypted.csv
+|   |   |   |-- writer-4-128M-plaintext.csv
+|   |   |   |-- writer-4-128M-tmpfs.csv
+|   |   |   |-- writer-4-128M-trusted.csv
+|   |   |   |-- writer.manifest.sgx
+|   |   |   |-- writer.sig
+|   |   |   |-- encrypted
+|   |   |   |-- plaintext
+|   |   |   `-- trusted
+|   |   `-- writer-4-64M
+|   |       |-- writer-4-64M-encrypted.csv
+|   |       |-- writer-4-64M-plaintext.csv
+|   |       |-- writer-4-64M-tmpfs.csv
+|   |       |-- writer-4-64M-trusted.csv
+|   |       |-- writer.manifest.sgx
+|   |       |-- writer.sig
+|   |       |-- encrypted
+|   |       |-- plaintext
+|   |       `-- trusted
+|   `-- no-gramine-sgx
+|       |-- writer-2
+|       |   |-- writer-2.csv
+|       |   `-- storage
+|       `-- writer-4
+|           |-- writer-4.csv
+|           `-- storage
 ```
 
-### Running
-To run the example, clone the repository and:
-
-```sh
-# cargo run -- -c examples/basic.toml -v
-```
 
 ## Python bindings
 This projects uses [Gramine Python API](https://gramine.readthedocs.io/en/stable/python/api.html) 

@@ -2,12 +2,8 @@
 sample_size = 10
 epc_size = ["64M", "128M"]
 output_directory = "/tmp/test"
-num_threads = [1, 2, 4]
+num_threads = [2, 4]
 extra_perf_events = ["cpu-clock"]
-
-[[tasks]]
-executable = "/bin/ls"
-args = ["-l", "-a"]
 
 [[tasks]]
 executable = "/bin/dd"
@@ -16,3 +12,9 @@ args = ["if=/dev/zero", "of=/dev/null", "count=10000"]
 [[tasks]]
 executable = "/usr/bin/make"
 args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "clean", "app"]
+
+[[tasks]]
+executable = "./examples/simple-writer/writer"
+args = ["{{ output_directory }}"]
+storage_type = ["encrypted", "tmpfs", "plaintext", "trusted"]
+
