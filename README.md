@@ -11,6 +11,7 @@ meson setup build/ \
   -Dsgx=enabled \
   -Ddcap=enabled
 ```
+For more information, refer to [Build Gramine from source](https://gramine.readthedocs.io/en/stable/devel/building.html).
 
 ## Usage
 The application takes a `toml` file as input and performs sequentials benchmark using `perf`
