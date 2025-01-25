@@ -16,5 +16,5 @@ args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "clean", "app"
 [[tasks]]
 executable = "./examples/simple-writer/writer"
 args = ["{{ output_directory }}"]
-storage_type = ["encrypted", "tmpfs", "plaintext", "trusted"]
+storage_type = ["encrypted", "plaintext", "tmpfs", "trusted"]
 

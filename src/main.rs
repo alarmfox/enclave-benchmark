@@ -46,8 +46,8 @@ struct GlobalParams {
     extra_perf_events: Option<Vec<String>>,
 }
 
-#[derive(Debug)]
-struct EnclaveMetadata {
+#[derive(Debug, Clone)]
+struct GramineMetadata {
     manifest_path: PathBuf,
     signature_path: PathBuf,
     encrypted_path: PathBuf,
@@ -55,7 +55,7 @@ struct EnclaveMetadata {
     tmpfs_path: PathBuf,
     plaintext_path: PathBuf,
 }
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 enum StorageType {
     Encrypted,
@@ -79,12 +79,33 @@ struct Task {
     executable: PathBuf,
     args: Option<Vec<String>>,
     custom_manifest_path: Option<PathBuf>,
-    #[serde(default = "default_storage_type")]
+    #[serde(
+        default = "default_storage_type",
+        deserialize_with = "deserialize_storage_type"
+    )]
     storage_type: Vec<StorageType>,
 }
 
 fn default_storage_type() -> Vec<StorageType> {
     vec![StorageType::Plaintext]
+}
+
+// ensure storage type is not empty
+// could happen if the user writes storage_type = []
+fn deserialize_storage_type<'de, D>(deserializer: D) -> Result<Vec<StorageType>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v: Option<Vec<StorageType>> = Option::deserialize(deserializer)?;
+    Ok(if let Some(array) = v {
+        if array.is_empty() {
+            default_storage_type()
+        } else {
+            array
+        }
+    } else {
+        default_storage_type()
+    })
 }
 
 #[derive(Debug)]
@@ -102,7 +123,7 @@ impl Profiler {
 libos.entrypoint = "{{ executable }}"
 loader.log_level = "none"
 
-loader.env.OMP_NUM_THREADS = "{{ max_threads }}"
+loader.env.OMP_NUM_THREADS = "{{ num_threads }}"
 loader.env.LD_LIBRARY_PATH = "/lib"
 loader.insecure__use_cmdline_argv = true
 
@@ -123,7 +144,7 @@ sgx.profile.enable = "all"
 sgx.profile.with_stack = true
 sys.enable_sigterm_injection = true
 sgx.enclave_size = "{{ epc_size }}"
-sgx.max_threads = {{ max_threads }}
+sgx.max_threads = {{ num_threads }}
 sgx.edmm_enable = false
 
 sgx.trusted_files = [
@@ -180,11 +201,11 @@ sgx.allowed_files = [
     fn build_and_sign_enclave(
         self: &Self,
         executable: &PathBuf,
-        custom_manifest_path: Option<PathBuf>,
         experiment_path: &PathBuf,
-        max_threads: &usize,
+        num_threads: &usize,
         epc_size: &String,
-    ) -> PyResult<EnclaveMetadata> {
+        custom_manifest_path: Option<PathBuf>,
+    ) -> PyResult<GramineMetadata> {
         // ported from https://gramine.readthedocs.io/en/stable/python/api.html
         Python::with_gil(|py| {
             let program_name = executable.file_name().unwrap().to_str().unwrap();
@@ -213,7 +234,7 @@ sgx.allowed_files = [
             let args = [
                 ("executable", executable.to_str().unwrap()),
                 ("epc_size", &epc_size),
-                ("max_threads", &max_threads.to_string()),
+                ("num_threads", &num_threads.to_string()),
                 ("encrypted_path", encrypted_path.to_str().unwrap()),
                 ("plaintext_path", plaintext_path.to_str().unwrap()),
                 ("trusted_path", trusted_path.to_str().unwrap()),
@@ -257,7 +278,7 @@ sgx.allowed_files = [
                 .extract()?;
 
             std::fs::write(&signature_path, sig_bytes)?;
-            Ok(EnclaveMetadata {
+            Ok(GramineMetadata {
                 manifest_path,
                 signature_path,
                 encrypted_path,
@@ -268,10 +289,34 @@ sgx.allowed_files = [
         })
     }
 
-    fn process_args_with_placeholders(
+    fn build_and_expand_args(
         args: Vec<String>,
-        context: &HashMap<&str, String>,
+        num_threads: usize,
+        fallback_storage_path: PathBuf,
+        storage_type: Option<StorageType>,
+        gramine_metadata: Option<GramineMetadata>,
     ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        // detect storage type if in sgx
+        // otherwise a simple directory is returned
+        let output_directory = match gramine_metadata.clone() {
+            Some(metadata) => match storage_type {
+                Some(StorageType::Encrypted) => metadata.encrypted_path,
+                Some(StorageType::Plaintext) => metadata.plaintext_path,
+                Some(StorageType::Trusted) => metadata.trusted_path,
+                Some(StorageType::Tmpfs) => metadata.tmpfs_path,
+                None => panic!("gramine sgx must have a storage type"),
+            },
+            None => fallback_storage_path,
+        };
+
+        // expand args
+        let context = HashMap::from([
+            ("num_threads", num_threads.to_string()),
+            (
+                "output_directory",
+                output_directory.to_str().unwrap().to_string(),
+            ),
+        ]);
         let handlebars = Handlebars::new();
         let mut processed_args = Vec::new();
 
@@ -280,7 +325,22 @@ sgx.allowed_files = [
             processed_args.push(rendered);
         }
 
-        Ok(processed_args)
+        let args = match gramine_metadata {
+            Some(metadata) => {
+                processed_args.insert(
+                    0,
+                    metadata
+                        .manifest_path
+                        .to_str()
+                        .unwrap()
+                        .replacen(".manifest.sgx", "", 1),
+                );
+                processed_args
+            }
+            None => processed_args,
+        };
+
+        Ok(args)
     }
 
     #[tracing::instrument(skip(self), level = "info", ret)]
@@ -288,86 +348,65 @@ sgx.allowed_files = [
         let program_name = task.executable.file_name().unwrap().to_str().unwrap();
         let task_path = self.output_directory.join(program_name);
 
-        for threads in &self.num_threads {
-            for epc in &self.epc_size {
-                let experiment_path =
-                    task_path.join(format!("gramine-sgx/{}-{}-{}", program_name, threads, epc));
+        for num_threads in &self.num_threads {
+            for epc_size in &self.epc_size {
+                let experiment_path = task_path.join(format!(
+                    "gramine-sgx/{}-{}-{}",
+                    program_name, num_threads, epc_size
+                ));
                 create_dir_all(&experiment_path)?;
 
-                let enclave_metadata = self.build_and_sign_enclave(
+                let gramine_metadata = self.build_and_sign_enclave(
                     &task.executable,
-                    task.custom_manifest_path.clone(),
                     &experiment_path,
-                    threads,
-                    epc,
+                    num_threads,
+                    epc_size,
+                    task.custom_manifest_path.clone(),
                 )?;
 
                 for storage_type in &task.storage_type {
-                    let output_directory = match storage_type {
-                        StorageType::Encrypted => &enclave_metadata.encrypted_path,
-                        StorageType::Plaintext => &enclave_metadata.plaintext_path,
-                        StorageType::Trusted => &enclave_metadata.trusted_path,
-                        StorageType::Tmpfs => &enclave_metadata.tmpfs_path,
-                    };
-                    let context = HashMap::from([
-                        ("num_threads", threads.to_string()),
-                        (
-                            "output_directory",
-                            output_directory.to_str().unwrap().to_string(),
-                        ),
-                    ]);
-                    let mut args = Self::process_args_with_placeholders(
+                    let args = Self::build_and_expand_args(
                         task.args.clone().unwrap_or_default(),
-                        &context,
+                        *num_threads,
+                        gramine_metadata.clone().plaintext_path,
+                        Some(storage_type.clone()),
+                        Some(gramine_metadata.clone()),
                     )?;
-                    // apparently gramine-sgx adds .manifest.sgx even if the argument already has
-                    // .manifest.sgx extention
-                    args.insert(
-                        0,
-                        enclave_metadata.manifest_path.to_str().unwrap().replacen(
-                            ".manifest.sgx",
-                            "",
-                            1,
-                        ),
-                    );
                     let enclave_path = &experiment_path.join(format!(
                         "{}-{}-{}-{}.csv",
-                        program_name, threads, epc, storage_type
+                        program_name, num_threads, epc_size, storage_type
                     ));
                     File::create(enclave_path).unwrap();
+                    println!("sgx args {}", args.join(","));
                     //self.run_with_perf(
                     //    &PathBuf::from("gramine-sgx"),
                     //    args,
                     //    &experiment_path.join(format!(
                     //        "{}-{}-{}-{}.csv",
-                    //        program_name, threads, epc, storage_type
+                    //        program_name, num_threads, epc_size, storage_type
                     //    )),
                     //)?;
                 }
             }
         }
-        for threads in &self.num_threads {
+        for num_threads in &self.num_threads {
             let experiment_path =
-                task_path.join(format!("no-gramine-sgx/{}-{}", program_name, threads));
-            create_dir_all(&experiment_path)?;
+                task_path.join(format!("no-gramine-sgx/{}-{}", program_name, num_threads));
             let storage_path = experiment_path.join("storage");
             create_dir_all(&storage_path)?;
 
-            let context = HashMap::from([
-                ("num_threads", threads.to_string()),
-                (
-                    "output_directory",
-                    storage_path.to_str().unwrap().to_string(),
-                ),
-            ]);
-            let args = Self::process_args_with_placeholders(
+            let args = Self::build_and_expand_args(
                 task.args.clone().unwrap_or_default(),
-                &context,
+                *num_threads,
+                storage_path,
+                None,
+                None,
             )?;
-            self.run_with_perf(
+
+            self.run_with_strace_and_perf(
                 &task.executable,
                 args,
-                &experiment_path.join(format!("{}-{}.csv", program_name, threads)),
+                &experiment_path.join(format!("{}-{}.csv", program_name, num_threads)),
             )
             .expect("cannot exec app");
         }
@@ -375,13 +414,13 @@ sgx.allowed_files = [
     }
 
     #[tracing::instrument(level = "trace", ret)]
-    fn run_with_perf(
+    fn run_with_strace_and_perf(
         self: &Self,
         executable: &PathBuf,
         executable_args: Vec<String>,
         outfile: &PathBuf,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut process = Command::new("perf")
+        let mut child = Command::new("perf")
             .arg("stat")
             .arg("--output")
             .arg(outfile)
@@ -396,7 +435,7 @@ sgx.allowed_files = [
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()?;
-        match process.wait() {
+        match child.wait() {
             Ok(exit_status) => match exit_status.success() {
                 true => Ok(()),
                 false => panic!("program exited with non zero code"),
@@ -436,7 +475,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod test {
-    use std::fs::remove_dir_all;
+    use tempfile::TempDir;
 
     use crate::*;
     #[test]
@@ -469,59 +508,44 @@ mod test {
 
     #[test]
     fn test_simple_profile() {
-        let config = toml::from_str::<Config>(
-            r#"
-            [globals]
-            sample_size = 3
-            epc_size = ["64M", "128M"]
-            num_threads = [1]
-            output_directory = "/tmp/test-1"
-            extra_perf_events = ["cycles"]
-            [[tasks]]
-            executable = "/bin/ls"
-            "#,
-        )
-        .unwrap();
+        let output_directory = TempDir::new().unwrap();
         Profiler::new(
-            config.globals.sample_size,
-            config.globals.num_threads,
-            config.globals.epc_size,
+            10,
+            vec![1, 2],
+            vec!["64M".to_string()],
             None,
-            config.globals.output_directory.clone(),
+            output_directory.path().join("profiler").to_path_buf(),
         )
         .unwrap()
-        .run_with_perf(
-            &config.tasks[0].executable,
-            config.tasks[0].clone().args.unwrap_or_default(),
-            &PathBuf::from("/tmp/test-1/test.csv"),
+        .run_with_strace_and_perf(
+            &PathBuf::from("/bin/ls"),
+            vec!["-l".to_string()],
+            &output_directory.path().join("ls.csv"),
         )
         .unwrap();
-
-        remove_dir_all(config.globals.output_directory).unwrap();
     }
 
     #[test]
     fn build_and_sign_enclave() {
-        let output_directory = PathBuf::from("test");
+        let output_directory = TempDir::new().unwrap();
         let profiler = Profiler::new(
             1,
             vec![1],
             vec!["64M".to_string()],
             None,
-            output_directory.clone(),
+            output_directory.path().join("profiler").to_path_buf(),
         )
         .unwrap();
 
         profiler
             .build_and_sign_enclave(
                 &PathBuf::from("/bin/ls"),
-                None,
-                &output_directory,
+                &output_directory.path().to_path_buf(),
                 &1,
                 &"64M".to_string(),
+                None,
             )
             .unwrap();
-        remove_dir_all(output_directory).unwrap();
     }
     #[test]
     fn test_example_config() {
@@ -551,5 +575,107 @@ mod test {
             "#,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn test_build_and_expand_args() {
+        let output_directory = TempDir::new().unwrap().path().join("storage");
+        let args = vec![
+            String::from("{{ output_directory }}"),
+            String::from("{{ num_threads }}"),
+        ];
+        let args =
+            Profiler::build_and_expand_args(args, 1, output_directory.clone(), None, None).unwrap();
+
+        assert_eq!(args[0], output_directory.clone().to_str().unwrap());
+        assert_eq!(args[1], String::from("1"));
+
+        let args = vec![
+            String::from("{{ output_directory }}"),
+            String::from("{{ num_threads }}"),
+        ];
+
+        let gramine_metadata = GramineMetadata {
+            manifest_path: output_directory.join("app.manifest.sgx"),
+            signature_path: output_directory.join("app.manifest.sig"),
+            encrypted_path: output_directory.join("encrypted_path"),
+            plaintext_path: output_directory.join("plaintext_path"),
+            trusted_path: output_directory.join("trusted_path"),
+            tmpfs_path: output_directory.join("tmpfs_path"),
+        };
+        let args = Profiler::build_and_expand_args(
+            args,
+            1,
+            output_directory.join("fallback"),
+            Some(StorageType::Encrypted),
+            Some(gramine_metadata.clone()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            args[0],
+            gramine_metadata
+                .manifest_path
+                .to_str()
+                .unwrap()
+                .to_string()
+                .replacen(".manifest.sgx", "", 1)
+        );
+        assert_eq!(
+            args[1],
+            output_directory.join("encrypted_path").to_str().unwrap()
+        );
+        assert_eq!(args[2], String::from("1"));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_missing_storage_for_sgx() {
+        let output_directory = TempDir::new().unwrap().path().join("storage");
+        let args = vec![
+            String::from("{{ output_directory }}"),
+            String::from("{{ num_threads }}"),
+        ];
+
+        let gramine_metadata = GramineMetadata {
+            manifest_path: output_directory.join("app.manifest.sgx"),
+            signature_path: output_directory.join("app.manifest.sig"),
+            encrypted_path: output_directory.join("encrypted_path"),
+            plaintext_path: output_directory.join("plaintext_path"),
+            trusted_path: output_directory.join("trusted_path"),
+            tmpfs_path: output_directory.join("tmpfs_path"),
+        };
+        Profiler::build_and_expand_args(
+            args,
+            1,
+            output_directory.join("fallback"),
+            None,
+            Some(gramine_metadata.clone()),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_default_storage_type() {
+        let config = toml::from_str::<Config>(
+            r#"
+            [globals]
+            sample_size = 3
+            epc_size = ["64M", "128M"]
+            num_threads = [1]
+            output_directory = "/test"
+            [[tasks]]
+            executable = "/bin/ls"
+            storage_type = []
+            [[tasks]]
+            executable = "/bin/ls"
+            args = ["-l", "-a"]
+            storage_type = ["tmpfs", "trusted"]
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(config.tasks[0].storage_type.len(), 1);
+        assert_eq!(config.tasks[0].storage_type[0], StorageType::Plaintext);
     }
 }
