@@ -34,6 +34,7 @@ jobs:
       uses: actions/checkout@v4
 
     - uses: actions/cache@v4
+      id: cache-docker-image
       with:
         path: /tmp/.docker-cache
         key: ${{ runner.os }}-${{ hashFiles('Dockerfile') }}
@@ -41,14 +42,15 @@ jobs:
           ${{ runner.os }}-
 
     - name: Load Docker image from cache
-      if: steps.cache.outputs.cache-hit == 'true'
+      if: steps.cache-docker-image.outputs.cache-hit == 'true'
       run: |
         docker load -i /tmp/.docker-cache/gramine-sdk.tar
 
     - name: Build Docker image
-      if: steps.cache.outputs.cache-hit != 'true'
+      if: steps.cache-docker-image.outputs.cache-hit != 'true'
       run: |
         docker build -t gramine-sdk .
+        mkdir -p /tmp/.docker-cache
         docker save gramine-sdk -o /tmp/.docker-cache/gramine-sdk.tar
 
     - name: Run tests
