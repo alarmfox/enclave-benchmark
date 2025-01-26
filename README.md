@@ -26,11 +26,10 @@ saving results in `csv`.
 ***Warning***: currently, enclave are built using a simple manifest file and only single binary 
 applications are allowed. In the future, options to specify custom manifest will be addded.
 
-An example file is stored in `examples/example.toml`.
-
+Example files are stored in the `examples` directory. Below `examples/full.toml`:
 ```toml
 [globals]
-sample_size = 10
+sample_size = 3
 epc_size = ["64M", "128M"]
 output_directory = "/tmp/test"
 num_threads = [2, 4]
@@ -42,12 +41,13 @@ args = ["if=/dev/zero", "of=/dev/null", "count=10000"]
 
 [[tasks]]
 executable = "/usr/bin/make"
-args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}"]
+args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "clean", "app"]
 
 [[tasks]]
-executable = "examples/simple-writer/writer"
+executable = "./examples/simple-writer/writer"
 args = ["{{ output_directory }}"]
 storage_type = ["encrypted", "plaintext", "tmpfs", "trusted"]
+
 ```
 A workload file has 2 sections:
 * globals: parameters used to generate experiments, output directory and add custom perf_events;
@@ -62,64 +62,71 @@ Each task can specify a `storage_type` array (see `writer` task in the example a
 * tmpfs: an in memory filesystem similar to tmpfs which is encrypted according to Gramine;
 * trusted: storage with integrity check and `chroot` environment;
 
-Results will be stored in `output_directory` and it will have the following structure (output reported only for task *writer*):
+Results will be stored in `output_directory` and it will have the following structure (output reported only for task **dd**):
 
 ```sh
-# tree -L 4 /tmp/test
+# tree -L 6 /tmp/test
 
 /tmp/test/
-|-- writer
+|-- dd
 |   |-- gramine-sgx
-|   |   |-- writer-2-128M
-|   |   |   |-- writer-2-128M-encrypted.csv
-|   |   |   |-- writer-2-128M-plaintext.csv
-|   |   |   |-- writer-2-128M-tmpfs.csv
-|   |   |   |-- writer-2-128M-trusted.csv
-|   |   |   |-- writer.manifest.sgx
-|   |   |   |-- writer.sig
+|   |   |-- dd-2-64M
+|   |   |   |-- dd-2-64M-plaintext
+|   |   |   |   |-- 1
+|   |   |   |   |   |-- perf.csv
+|   |   |   |   |   `-- strace.log
+|   |   |   |   |-- 2
+|   |   |   |   |   |-- perf.csv
+|   |   |   |   |   `-- strace.log
+|   |   |   |   `-- 3
+|   |   |   |       |-- perf.csv
+|   |   |   |       `-- strace.log
+|   |   |   |-- dd.manifest.sgx
+|   |   |   |-- dd.sig
 |   |   |   |-- encrypted
 |   |   |   |-- plaintext
 |   |   |   `-- trusted
-|   |   |-- writer-2-64M
-|   |   |   |-- writer-2-64M-encrypted.csv
-|   |   |   |-- writer-2-64M-plaintext.csv
-|   |   |   |-- writer-2-64M-tmpfs.csv
-|   |   |   |-- writer-2-64M-trusted.csv
-|   |   |   |-- writer.manifest.sgx
-|   |   |   |-- writer.sig
-|   |   |   |-- encrypted
-|   |   |   |-- plaintext
-|   |   |   `-- trusted
-|   |   |-- writer-4-128M
-|   |   |   |-- writer-4-128M-encrypted.csv
-|   |   |   |-- writer-4-128M-plaintext.csv
-|   |   |   |-- writer-4-128M-tmpfs.csv
-|   |   |   |-- writer-4-128M-trusted.csv
-|   |   |   |-- writer.manifest.sgx
-|   |   |   |-- writer.sig
-|   |   |   |-- encrypted
-|   |   |   |-- plaintext
-|   |   |   `-- trusted
-|   |   `-- writer-4-64M
-|   |       |-- writer-4-64M-encrypted.csv
-|   |       |-- writer-4-64M-plaintext.csv
-|   |       |-- writer-4-64M-tmpfs.csv
-|   |       |-- writer-4-64M-trusted.csv
-|   |       |-- writer.manifest.sgx
-|   |       |-- writer.sig
+|   |   `-- dd-4-64M
+|   |       |-- dd-4-64M-plaintext
+|   |       |   |-- 1
+|   |       |   |   |-- perf.csv
+|   |       |   |   `-- strace.log
+|   |       |   |-- 2
+|   |       |   |   |-- perf.csv
+|   |       |   |   `-- strace.log
+|   |       |   `-- 3
+|   |       |       |-- perf.csv
+|   |       |       `-- strace.log
+|   |       |-- dd.manifest.sgx
+|   |       |-- dd.sig
 |   |       |-- encrypted
 |   |       |-- plaintext
 |   |       `-- trusted
 |   `-- no-gramine-sgx
-|       |-- writer-2
-|       |   |-- writer-2.csv
+|       |-- dd-2
+|       |   |-- 1
+|       |   |   |-- perf.csv
+|       |   |   `-- strace.log
+|       |   |-- 2
+|       |   |   |-- perf.csv
+|       |   |   `-- strace.log
+|       |   |-- 3
+|       |   |   |-- perf.csv
+|       |   |   `-- strace.log
 |       |   `-- storage
-|       `-- writer-4
-|           |-- writer-4.csv
+|       `-- dd-4
+|           |-- 1
+|           |   |-- perf.csv
+|           |   `-- strace.log
+|           |-- 2
+|           |   |-- perf.csv
+|           |   `-- strace.log
+|           |-- 3
+|           |   |-- perf.csv
+|           |   `-- strace.log
 |           `-- storage
+|-- private_key.pem
 ```
-
-
 ## Python bindings
 This projects uses [Gramine Python API](https://gramine.readthedocs.io/en/stable/python/api.html) 
 with [PyO3](https://github.com/PyO3/pyo3) and needs `python3-dev[evel]` package. You will need 

@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
@@ -16,6 +17,8 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
+    // this sleep makes the program last to be traced
+    sleep(1);
     fprintf(file, "Hello, World!\n");
     fclose(file);
 

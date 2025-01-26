@@ -10,11 +10,14 @@ use rsa::{
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
-    fmt::Display,
+    error,
+    fmt::{Debug, Display},
     fs::{create_dir, create_dir_all, File},
     io::Read,
     path::PathBuf,
     process::{Command, Stdio},
+    thread::{self, sleep, JoinHandle},
+    time::Duration,
 };
 
 use clap::{arg, command, Parser};
@@ -55,6 +58,7 @@ struct GramineMetadata {
     tmpfs_path: PathBuf,
     plaintext_path: PathBuf,
 }
+
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 enum StorageType {
@@ -74,6 +78,7 @@ impl Display for StorageType {
         }
     }
 }
+
 #[derive(Deserialize, Clone, Debug)]
 struct Task {
     executable: PathBuf,
@@ -107,15 +112,13 @@ where
         default_storage_type()
     })
 }
-
 #[derive(Debug)]
 struct Profiler {
-    sample_size: u32,
     private_key_path: PathBuf,
     output_directory: PathBuf,
-    perf_events: Vec<String>,
     num_threads: Vec<usize>,
     epc_size: Vec<String>,
+    collector: Box<dyn Collector + 'static>,
 }
 
 impl Profiler {
@@ -157,11 +160,10 @@ sgx.allowed_files = [
 ]
 "#;
     fn new(
-        sample_size: u32,
         num_threads: Vec<usize>,
         epc_size: Vec<String>,
-        extra_perf_events: Option<Vec<String>>,
         output_directory: PathBuf,
+        collector: Box<dyn Collector + 'static>,
     ) -> Result<Self, std::io::Error> {
         create_dir(&output_directory)?;
 
@@ -174,30 +176,16 @@ sgx.allowed_files = [
             .write_pkcs1_pem_file(&private_key_path, pkcs1::LineEnding::default())
             .unwrap();
 
-        let mut perf_events = HashSet::from([
-            "user_time".to_string(),
-            "system_time".to_string(),
-            "duration_time".to_string(),
-            "cycles".to_string(),
-            "instructions".to_string(),
-            "cache-misses".to_string(),
-        ]);
-
-        for extra_perf_event in extra_perf_events.unwrap_or_default() {
-            perf_events.insert(extra_perf_event);
-        }
-        let perf_events = Vec::from_iter(perf_events.iter().map(String::from));
         Ok(Profiler {
             private_key_path,
             output_directory,
-            sample_size,
-            perf_events,
             num_threads,
             epc_size,
+            collector,
         })
     }
 
-    #[tracing::instrument(level = "trace", ret)]
+    #[tracing::instrument(level = "trace", skip(self), ret)]
     fn build_and_sign_enclave(
         self: &Self,
         executable: &PathBuf,
@@ -344,7 +332,7 @@ sgx.allowed_files = [
     }
 
     #[tracing::instrument(skip(self), level = "info", ret)]
-    fn profile(self: &Self, task: Task) -> Result<(), Box<dyn std::error::Error>> {
+    fn profile(self: &mut Self, task: Task) -> Result<(), Box<dyn std::error::Error>> {
         let program_name = task.executable.file_name().unwrap().to_str().unwrap();
         let task_path = self.output_directory.join(program_name);
 
@@ -372,20 +360,12 @@ sgx.allowed_files = [
                         Some(storage_type.clone()),
                         Some(gramine_metadata.clone()),
                     )?;
-                    let enclave_path = &experiment_path.join(format!(
-                        "{}-{}-{}-{}.csv",
+                    let result_path = &experiment_path.join(format!(
+                        "{}-{}-{}-{}",
                         program_name, num_threads, epc_size, storage_type
                     ));
-                    File::create(enclave_path).unwrap();
-                    println!("sgx args {}", args.join(","));
-                    //self.run_with_perf(
-                    //    &PathBuf::from("gramine-sgx"),
-                    //    args,
-                    //    &experiment_path.join(format!(
-                    //        "{}-{}-{}-{}.csv",
-                    //        program_name, num_threads, epc_size, storage_type
-                    //    )),
-                    //)?;
+                    self.collector
+                        .attach(PathBuf::from("gramine-sgx"), args, &result_path)?;
                 }
             }
         }
@@ -403,45 +383,10 @@ sgx.allowed_files = [
                 None,
             )?;
 
-            self.run_with_strace_and_perf(
-                &task.executable,
-                args,
-                &experiment_path.join(format!("{}-{}.csv", program_name, num_threads)),
-            )
-            .expect("cannot exec app");
+            self.collector
+                .attach(task.executable.clone(), args, &experiment_path)?;
         }
         Ok(())
-    }
-
-    #[tracing::instrument(level = "trace", ret)]
-    fn run_with_strace_and_perf(
-        self: &Self,
-        executable: &PathBuf,
-        executable_args: Vec<String>,
-        outfile: &PathBuf,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut child = Command::new("perf")
-            .arg("stat")
-            .arg("--output")
-            .arg(outfile)
-            .arg("--repeat")
-            .arg(self.sample_size.to_string())
-            .arg("--field-separator")
-            .arg(",")
-            .arg("--event")
-            .arg(self.perf_events.join(","))
-            .arg(executable)
-            .args(executable_args)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?;
-        match child.wait() {
-            Ok(exit_status) => match exit_status.success() {
-                true => Ok(()),
-                false => panic!("program exited with non zero code"),
-            },
-            Err(e) => panic!("program crashed {e}"),
-        }
     }
 }
 
@@ -459,12 +404,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().with_max_level(log_level).init();
     let _ = File::open(cli.config_path)?.read_to_string(&mut config)?;
     let config = toml::from_str::<Config>(config.as_str())?;
-    let profiler = Profiler::new(
-        config.globals.sample_size,
+
+    let mut profiler = Profiler::new(
         config.globals.num_threads,
         config.globals.epc_size,
-        config.globals.extra_perf_events,
         config.globals.output_directory,
+        Box::new(FullMetricsCollector::new(
+            config.globals.sample_size,
+            config.globals.extra_perf_events,
+        )),
     )?;
 
     for task in config.tasks {
@@ -473,9 +421,168 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+trait Collector {
+    fn attach(
+        self: &mut Self,
+        _program: PathBuf,
+        _args: Vec<String>,
+        _output_directory: &PathBuf,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+}
+
+struct FullMetricsCollector {
+    sample_size: u32,
+    strace_cmd: Command,
+    perf_cmd: Command,
+}
+
+impl FullMetricsCollector {
+    const DEFAULT_PERF_EVENTS: [&str; 28] = [
+        "user_time",
+        "system_time",
+        "duration_time",
+        "cycles",
+        "instructions",
+        "cache-misses",
+        "L1-dcache-loads",
+        "L1-dcache-load-misses",
+        "L1-dcache-prefetches",
+        "L1-icache-loads",
+        "L1-icache-load-misses",
+        "dTLB-loads",
+        "dTLB-load-misses",
+        "iTLB-loads",
+        "iTLB-load-misses",
+        "branch-loads",
+        "branch-load-misses",
+        "branch-instructions",
+        "branch-misses",
+        "cache-misses",
+        "cache-references",
+        "cpu-cycles",
+        "instructions",
+        "stalled-cycles-frontend",
+        "branch-misses",
+        "cache-misses",
+        "cpu-cycles",
+        "page-faults",
+    ];
+    fn new(sample_size: u32, extra_perf_events: Option<Vec<String>>) -> Self {
+        Self {
+            sample_size,
+            strace_cmd: {
+                let mut cmd = Command::new("strace");
+                cmd.arg("-ttt");
+                cmd.stdout(Stdio::null());
+                cmd.stderr(Stdio::null());
+                cmd
+            },
+
+            perf_cmd: {
+                let mut perf_events: HashSet<String> =
+                    HashSet::from_iter(Self::DEFAULT_PERF_EVENTS.iter().map(|v| v.to_string()));
+                for extra_perf_event in extra_perf_events.unwrap_or_default() {
+                    perf_events.insert(extra_perf_event);
+                }
+                let perf_events = Vec::from_iter(perf_events.iter().map(String::from));
+                let mut cmd = Command::new("perf");
+                cmd.arg("stat");
+                cmd.arg("--field-separator");
+                cmd.arg(",");
+                cmd.arg("--event");
+                cmd.arg(perf_events.join(","));
+                cmd.stdout(Stdio::null());
+                cmd.stderr(Stdio::null());
+                cmd
+            },
+        }
+    }
+}
+
+impl Collector for FullMetricsCollector {
+    fn attach(
+        self: &mut Self,
+        program: PathBuf,
+        args: Vec<String>,
+        output_directory: &PathBuf,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for n in 1..self.sample_size + 1 {
+            let experiment_directory = output_directory.join(PathBuf::from(n.to_string()));
+            create_dir_all(&experiment_directory)?;
+            if program.to_str().unwrap() == "gramine-sgx" {
+                File::create(experiment_directory.join("strace.log"))?;
+                File::create(experiment_directory.join("perf.csv"))?;
+                continue;
+            }
+            let cmd = Command::new(&program)
+                .args(args.clone())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn();
+            match cmd {
+                Ok(child) => {
+                    let perf_child = self
+                        .perf_cmd
+                        .arg("--output")
+                        .arg(experiment_directory.join("perf.csv"))
+                        .arg("--pid")
+                        .arg(child.id().to_string())
+                        .spawn()?;
+
+                    let strace_child = self
+                        .strace_cmd
+                        .arg("--output")
+                        .arg(experiment_directory.join("strace.log"))
+                        .arg("--attach")
+                        .arg(child.id().to_string())
+                        .spawn()?;
+
+                    println!(
+                        "strace pid = {}; perf pid = {}; program pid = {}",
+                        strace_child.id(),
+                        perf_child.id(),
+                        child.id()
+                    );
+
+                    for mut child in [child, perf_child, strace_child] {
+                        match child.wait() {
+                            Ok(status) => match status.code().unwrap() {
+                                0 => {}
+                                n => {
+                                    // not panicking because some tasks are too fast to be measured
+                                    // so they terminate before strace and perf
+                                    println!(
+                                        "process with pid {} exited with code {}",
+                                        child.id(),
+                                        n,
+                                    )
+                                }
+                            },
+                            Err(e) => panic!("error waiting {}", e),
+                        }
+                    }
+                }
+                Err(e) => panic!("process exited with error {}", e),
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Debug for dyn Collector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Collector debug")
+    }
+}
+
 #[cfg(test)]
 mod test {
     use tempfile::TempDir;
+    struct DummyCollector;
+
+    impl Collector for DummyCollector {}
 
     use crate::*;
     #[test]
@@ -507,33 +614,13 @@ mod test {
     }
 
     #[test]
-    fn test_simple_profile() {
-        let output_directory = TempDir::new().unwrap();
-        Profiler::new(
-            10,
-            vec![1, 2],
-            vec!["64M".to_string()],
-            None,
-            output_directory.path().join("profiler").to_path_buf(),
-        )
-        .unwrap()
-        .run_with_strace_and_perf(
-            &PathBuf::from("/bin/ls"),
-            vec!["-l".to_string()],
-            &output_directory.path().join("ls.csv"),
-        )
-        .unwrap();
-    }
-
-    #[test]
     fn build_and_sign_enclave() {
         let output_directory = TempDir::new().unwrap();
         let profiler = Profiler::new(
-            1,
             vec![1],
             vec!["64M".to_string()],
-            None,
             output_directory.path().join("profiler").to_path_buf(),
+            Box::new(DummyCollector),
         )
         .unwrap();
 
@@ -548,13 +635,17 @@ mod test {
             .unwrap();
     }
     #[test]
-    fn test_example_config() {
+    fn test_example_configs() {
         let mut buf = String::new();
-        let _ = File::open("./examples/example.toml")
-            .unwrap()
-            .read_to_string(&mut buf)
-            .unwrap();
-        toml::from_str::<Config>(buf.as_str()).unwrap();
+        let examples = ["examples/full.toml", "examples/simple.toml"];
+        for file in examples {
+            let _ = File::open(PathBuf::from(file))
+                .unwrap()
+                .read_to_string(&mut buf)
+                .unwrap();
+            toml::from_str::<Config>(buf.as_str()).unwrap();
+            buf.clear();
+        }
     }
     #[test]
     #[should_panic]
@@ -677,5 +768,33 @@ mod test {
 
         assert_eq!(config.tasks[0].storage_type.len(), 1);
         assert_eq!(config.tasks[0].storage_type[0], StorageType::Plaintext);
+    }
+
+    #[test]
+    fn test_collector() {
+        let output_directory = TempDir::new().unwrap();
+        let mut collector = FullMetricsCollector::new(2, None);
+        collector
+            .attach(
+                PathBuf::from("/bin/dd"),
+                vec![
+                    "if=/dev/zero".into(),
+                    "of=/dev/null".into(),
+                    "count=10000".into(),
+                ],
+                &output_directory.path().to_path_buf(),
+            )
+            .unwrap();
+
+        for i in 1..3 {
+            assert!(output_directory
+                .path()
+                .join(format!("{}/strace.log", i))
+                .is_file());
+            assert!(output_directory
+                .path()
+                .join(format!("{}/perf.csv", i))
+                .is_file());
+        }
     }
 }
