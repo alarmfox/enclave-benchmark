@@ -11,6 +11,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
   cmake \
   psmisc \
   make \
+  strace \
   build-essential \
   binutils-dev \
   autoconf \ 
