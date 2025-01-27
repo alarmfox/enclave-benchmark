@@ -20,4 +20,5 @@ A CLI application to run benchmark and collect metrics in a TEE environment.
    installation
    usage/basic
    usage/advanced
+   contributing
 
