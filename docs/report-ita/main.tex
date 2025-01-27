@@ -1,0 +1,150 @@
+\documentclass{article}
+\usepackage{tikz, hyperref, comment, amsmath, cleveref, forest, subcaption, listings, xcolor, float}
+\usepackage[bottom]{footmisc}
+\usepackage[margin=.75in]{geometry}
+
+\renewcommand{\contentsname}{Indice}
+\renewcommand{\refname}{Riferimenti}
+\renewcommand{\figurename}{Figura}
+\renewcommand{\tablename}{Tabella}
+\renewcommand{\lstlistingname}{Listato}
+
+\crefformat{section}{\S#2#1#3}
+\crefformat{subsection}{\S#2#1#3}
+\crefformat{subsubsection}{\S#2#1#3}
+\crefformat{figure}{#2Figura~#1#3}
+\crefformat{footnote}{#2\footnotemark[#1]#3}
+\crefformat{table}{#2Tabella~#1#3}
+
+\crefname{lstlisting}{listato}{listati}
+\Crefname{lstlisting}{Listato}{Listati}
+
+\usepackage[listings,skins]{tcolorbox}
+\lstdefinelanguage{Toml}{
+    comment = [l]{\#},
+    keywords = {true, false},
+    morestring = [b]{"}
+}
+
+\lstdefinelanguage{json}{
+    basicstyle=\normalfont\ttfamily,
+    numbers=left,
+    numberstyle=\scriptsize,
+    stepnumber=1,
+    numbersep=8pt,
+    showstringspaces=false,
+    breaklines=true,
+    frame=lines,
+    backgroundcolor=\color{background},
+    literate=
+     *{0}{{{\color{numb}0}}}{1}
+      {1}{{{\color{numb}1}}}{1}
+      {2}{{{\color{numb}2}}}{1}
+      {3}{{{\color{numb}3}}}{1}
+      {4}{{{\color{numb}4}}}{1}
+      {5}{{{\color{numb}5}}}{1}
+      {6}{{{\color{numb}6}}}{1}
+      {7}{{{\color{numb}7}}}{1}
+      {8}{{{\color{numb}8}}}{1}
+      {9}{{{\color{numb}9}}}{1}
+      {:}{{{\color{punct}{:}}}}{1}
+      {,}{{{\color{punct}{,}}}}{1}
+      {\{}{{{\color{delim}{\{}}}}{1}
+      {\}}{{{\color{delim}{\}}}}}{1}
+      {[}{{{\color{delim}{[}}}}{1}
+      {]}{{{\color{delim}{]}}}}{1},
+}
+\lstset{
+    tabsize = 2,
+    frame = tb,
+    breaklines = true,
+    numbers = left,
+    numbersep = 5pt,
+    numberstyle = \color{white!30!black}\scriptsize,
+    stepnumber = 1,
+    basicstyle = \footnotesize\ttfamily,
+    commentstyle={\color{green!50!black}\ttfamily},
+    keywordstyle = {\bfseries\color{purple}}, % keywords
+    keywordstyle = [2]{\itshape\color{blue}}, % traits
+    keywordstyle = [3]{\color{blue}}, % primitive types
+    keywordstyle = [4]{\color{blue}}, % type and value ctors
+    keywordstyle = [5]{\color{purple!50!blue}}, % macros
+    stringstyle = \color{green!45!blue},
+    aboveskip = \baselineskip,
+    showstringspaces = false
+}
+ \lstdefinelanguage{docker}{
+  keywords={FROM, RUN, COPY, ADD, ENTRYPOINT, CMD,  ENV, ARG, WORKDIR, EXPOSE, LABEL, USER, VOLUME, STOPSIGNAL, ONBUILD, MAINTAINER, HEALTHCHECK},
+  keywordstyle=\color{blue}\bfseries,
+  identifierstyle=\color{black},
+  sensitive=false,
+  comment=[l]{\#},
+  commentstyle=\color{purple}\ttfamily,
+  stringstyle=\color{red}\ttfamily,
+  morestring=[b]',
+  morestring=[b]"
+}
+\lstdefinelanguage{Ini}
+{
+    basicstyle=\ttfamily\small,
+    columns=fullflexible,
+    morecomment=[s][\color{Orchid}\bfseries]{[}{]},
+    morecomment=[l]{\#},
+    morecomment=[l]{;},
+    commentstyle=\color{gray}\ttfamily,
+    morekeywords={},
+    otherkeywords={=,:},
+    keywordstyle={\color{green}\bfseries}
+}
+
+\title{High performance and quantum computing}
+
+\author{Giuseppe Capasso}
+
+\begin{document}
+\begin{titlepage}
+  \thispagestyle{empty}
+  \raggedright % Allinea a sinistra
+
+  \begin{tikzpicture}
+    \node[anchor=south west] at (4,0) {\includegraphics[scale=0.75]{figures/unina-logo-1.png}};
+    \node[anchor=south west] at (0,1.5) {\includegraphics{figures/unina-logo-2.png}};
+    \node[anchor=south west] at (0,0.5) {\textsf{Scuola Politecnica e delle Scienze di Base}};
+    \node[anchor=south west] at (0,0) {\textsf{Corso di Laurea Magistrale in Ingegneria Informatica}};
+  \end{tikzpicture}
+
+  \vfill
+
+  {\textbf{\textit{\LARGE TEE Enclave benchmark}}}
+  \\[2cm]
+
+  {\textbf{\textit{\Large High Performance and Quantum Computing}}}
+  \\[1cm]
+  {\large Anno Accademico 2023/2024}
+
+  \vfill
+
+  \begin{table}[h]
+    \textbf{Giuseppe Capasso matr. M63001498}
+  \end{table}
+
+\end{titlepage}
+
+\thispagestyle{empty}
+\tableofcontents
+
+\newpage
+\thispagestyle{empty}
+
+\section{Confidential computing}
+\subsection{Trusted Execution Environment (TEE)}
+
+\clearpage
+\pagestyle{plain}
+\pagenumbering{roman}
+\setcounter{page}{1}
+\addcontentsline{toc}{section}{Riferimenti}
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}
