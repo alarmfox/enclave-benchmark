@@ -2,7 +2,15 @@
 This is setup page
 
 ## Building Gramine
-We need Gramine from Source
+We need to build Gramine from source to get access to debug information at runtime. 
+
+```sh
+meson setup build/ \
+  --buildtype=debugoptimized \
+  -Ddirect=enabled \ 
+  -Dsgx=enabled \
+  -Ddcap=enabled
+```
 
 ## Host setup
 
