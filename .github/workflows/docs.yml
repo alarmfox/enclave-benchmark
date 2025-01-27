@@ -35,7 +35,7 @@ jobs:
     - name: Sphinx Build HTML
       run: | 
         make -C docs/web html
-        sudo chmod -R a+rwx g+rwx u+rwx ./docs/web/build/html/
+        sudo chmod -R a+rX ./docs/web/build/html/
     - name: Upload artifacts
       id: deployment
       uses: actions/upload-artifact@v3
