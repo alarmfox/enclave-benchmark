@@ -1,10 +1,9 @@
 Setup
 =====
-
 This is setup page
 
-Gramine
--------
+Building Gramine
+----------------
 We need Gramine from Source
 
 Build from source

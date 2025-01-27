@@ -17,7 +17,7 @@ A CLI application to run benchmark and collect metrics in a TEE environment.
    :caption: Contents:
 
    setup
+   installation
    usage/basic
    usage/advanced
-   usage/custom_manifest
 
