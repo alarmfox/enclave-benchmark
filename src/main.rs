@@ -52,7 +52,7 @@ struct GramineMetadata {
     encrypted_path: PathBuf,
     trusted_path: PathBuf,
     tmpfs_path: PathBuf,
-    plaintext_path: PathBuf,
+    untrusted_path: PathBuf,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
@@ -61,16 +61,16 @@ enum StorageType {
     Encrypted,
     Tmpfs,
     Trusted,
-    Plaintext,
+    Untrusted,
 }
 
 impl Display for StorageType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Encrypted => write!(f, "encrypted"),
-            Self::Plaintext => write!(f, "plaintext"),
             Self::Tmpfs => write!(f, "tmpfs"),
             Self::Trusted => write!(f, "trusted"),
+            Self::Untrusted => write!(f, "untrusted"),
         }
     }
 }
@@ -85,10 +85,16 @@ struct Task {
         deserialize_with = "deserialize_storage_type"
     )]
     storage_type: Vec<StorageType>,
+
+    pre_run_executable: Option<PathBuf>,
+    pre_run_args: Option<Vec<String>>,
+
+    post_run_executable: Option<PathBuf>,
+    post_run_args: Option<Vec<String>>,
 }
 
 fn default_storage_type() -> Vec<StorageType> {
-    vec![StorageType::Plaintext]
+    vec![StorageType::Untrusted]
 }
 
 // ensure storage type is not empty
@@ -152,7 +158,7 @@ sgx.trusted_files = [
 ]
 
 sgx.allowed_files = [
-  "file::{{ plaintext_path }}/"
+  "file::{{ untrusted_path }}/"
 ]
 "#;
     fn new(
@@ -181,7 +187,7 @@ sgx.allowed_files = [
         })
     }
 
-    #[tracing::instrument(level = "trace", skip(self), ret)]
+    #[tracing::instrument(level = "debug", skip(self), ret)]
     fn build_and_sign_enclave(
         &self,
         executable: &PathBuf,
@@ -203,8 +209,8 @@ sgx.allowed_files = [
             create_dir_all(&encrypted_path)?;
             let trusted_path = experiment_path.join("trusted");
             create_dir_all(&trusted_path)?;
-            let plaintext_path = experiment_path.join("plaintext");
-            create_dir_all(&plaintext_path)?;
+            let untrusted_path = experiment_path.join("untrusted");
+            create_dir_all(&untrusted_path)?;
 
             let tmpfs_path = PathBuf::from("/tmp");
 
@@ -220,7 +226,7 @@ sgx.allowed_files = [
                 ("epc_size", epc_size),
                 ("num_threads", &num_threads.to_string()),
                 ("encrypted_path", encrypted_path.to_str().unwrap()),
-                ("plaintext_path", plaintext_path.to_str().unwrap()),
+                ("untrusted_path", untrusted_path.to_str().unwrap()),
                 ("trusted_path", trusted_path.to_str().unwrap()),
                 ("tmpfs_path", tmpfs_path.to_str().unwrap()),
             ]
@@ -230,9 +236,9 @@ sgx.allowed_files = [
                 Some(p) => {
                     let mut f = File::open(p)?;
                     let mut buf = String::new();
-                    f.read_to_string(&mut buf)?;
+                    let n = f.read_to_string(&mut buf)?;
                     manifest
-                        .call_method1("from_template", (buf.trim(), args))?
+                        .call_method1("from_template", (buf[..n].trim(), args))?
                         .extract()?
                 }
                 None => manifest
@@ -267,29 +273,31 @@ sgx.allowed_files = [
                 encrypted_path,
                 trusted_path,
                 tmpfs_path,
-                plaintext_path,
+                untrusted_path,
             })
         })
     }
 
     fn build_and_expand_args(
         args: Vec<String>,
+        pre_args: Vec<String>,
+        post_args: Vec<String>,
         num_threads: usize,
         fallback_storage_path: PathBuf,
         storage_type: Option<StorageType>,
         gramine_metadata: Option<GramineMetadata>,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    ) -> Result<(Vec<String>, Vec<String>, Vec<String>), Box<dyn std::error::Error>> {
         // detect storage type if in sgx
         // otherwise a simple directory is returned
         let output_directory = match gramine_metadata.clone() {
             Some(metadata) => match storage_type {
                 Some(StorageType::Encrypted) => metadata.encrypted_path,
-                Some(StorageType::Plaintext) => metadata.plaintext_path,
+                Some(StorageType::Untrusted) => metadata.untrusted_path,
                 Some(StorageType::Trusted) => metadata.trusted_path,
                 Some(StorageType::Tmpfs) => metadata.tmpfs_path,
                 None => panic!("gramine sgx must have a storage type"),
             },
-            None => fallback_storage_path,
+            None => fallback_storage_path.clone(),
         };
 
         // expand args
@@ -299,31 +307,37 @@ sgx.allowed_files = [
                 "output_directory",
                 output_directory.to_str().unwrap().to_string(),
             ),
+            ("storage_directory", {
+                let path = match gramine_metadata.clone() {
+                    Some(metadata) => metadata.untrusted_path,
+                    None => fallback_storage_path,
+                };
+                path.to_str().unwrap().to_string()
+            }),
         ]);
         let handlebars = Handlebars::new();
-        let mut processed_args = Vec::new();
 
-        for arg in args {
-            let rendered = handlebars.render_template(&arg, &context)?;
-            processed_args.push(rendered);
+        let mut args: Vec<Vec<String>> = [&args, &pre_args, &post_args]
+            .iter()
+            .map(|arg_list| {
+                arg_list
+                    .iter()
+                    .map(|template_string| handlebars.render_template(&template_string, &context))
+                    .collect::<Result<Vec<String>, _>>()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if let Some(metadata) = gramine_metadata {
+            args[0].insert(
+                0,
+                metadata
+                    .manifest_path
+                    .to_str()
+                    .unwrap()
+                    .replacen(".manifest.sgx", "", 1),
+            );
         }
 
-        let args = match gramine_metadata {
-            Some(metadata) => {
-                processed_args.insert(
-                    0,
-                    metadata
-                        .manifest_path
-                        .to_str()
-                        .unwrap()
-                        .replacen(".manifest.sgx", "", 1),
-                );
-                processed_args
-            }
-            None => processed_args,
-        };
-
-        Ok(args)
+        Ok((args.remove(0), args.remove(0), args.remove(0)))
     }
 
     #[tracing::instrument(skip(self), level = "info", ret)]
@@ -348,10 +362,12 @@ sgx.allowed_files = [
                 )?;
 
                 for storage_type in &task.storage_type {
-                    let args = Self::build_and_expand_args(
+                    let (args, pre_args, post_args) = Self::build_and_expand_args(
                         task.args.clone().unwrap_or_default(),
+                        task.pre_run_args.clone().unwrap_or_default(),
+                        task.post_run_args.clone().unwrap_or_default(),
                         *num_threads,
-                        gramine_metadata.clone().plaintext_path,
+                        gramine_metadata.clone().untrusted_path,
                         Some(storage_type.clone()),
                         Some(gramine_metadata.clone()),
                     )?;
@@ -359,8 +375,15 @@ sgx.allowed_files = [
                         "{}-{}-{}-{}",
                         program_name, num_threads, epc_size, storage_type
                     ));
-                    self.collector
-                        .attach(PathBuf::from("gramine-sgx"), args, result_path)?;
+                    self.collector.attach(
+                        PathBuf::from("gramine-sgx"),
+                        args,
+                        task.pre_run_executable.clone(),
+                        pre_args,
+                        task.post_run_executable.clone(),
+                        post_args,
+                        result_path,
+                    )?;
                 }
             }
         }
@@ -370,16 +393,25 @@ sgx.allowed_files = [
             let storage_path = experiment_path.join("storage");
             create_dir_all(&storage_path)?;
 
-            let args = Self::build_and_expand_args(
+            let (args, pre_args, post_args) = Self::build_and_expand_args(
                 task.args.clone().unwrap_or_default(),
+                task.pre_run_args.clone().unwrap_or_default(),
+                task.post_run_args.clone().unwrap_or_default(),
                 *num_threads,
                 storage_path,
                 None,
                 None,
             )?;
 
-            self.collector
-                .attach(task.executable.clone(), args, &experiment_path)?;
+            self.collector.attach(
+                task.executable.clone(),
+                args,
+                task.pre_run_executable.clone(),
+                pre_args,
+                task.post_run_executable.clone(),
+                post_args,
+                &experiment_path,
+            )?;
         }
         Ok(())
     }
@@ -404,7 +436,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.globals.num_threads,
         config.globals.epc_size,
         config.globals.output_directory,
-        Box::new(FullMetricsCollector::new(
+        Box::new(DefaultLinuxCollector::new(
             config.globals.sample_size,
             config.globals.extra_perf_events,
         )),
@@ -421,17 +453,21 @@ trait Collector {
         &mut self,
         _program: PathBuf,
         _args: Vec<String>,
+        _pre_run_executable: Option<PathBuf>,
+        _pre_run_args: Vec<String>,
+        _post_run_executable: Option<PathBuf>,
+        _post_run_args: Vec<String>,
         _output_directory: &Path,
     ) -> Result<(), Box<dyn std::error::Error>>;
 }
 
-struct FullMetricsCollector {
+struct DefaultLinuxCollector {
     sample_size: u32,
     strace_cmd: Command,
     perf_cmd: Command,
 }
 
-impl FullMetricsCollector {
+impl DefaultLinuxCollector {
     const DEFAULT_PERF_EVENTS: [&str; 28] = [
         "user_time",
         "system_time",
@@ -492,13 +528,72 @@ impl FullMetricsCollector {
             },
         }
     }
+
+    fn run_experiment(
+        &mut self,
+        program: &PathBuf,
+        args: &Vec<String>,
+        experiment_directory: &Path,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let cmd = Command::new(program)
+            .args(args.clone())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        match cmd {
+            Ok(child) => {
+                let perf_child = self
+                    .perf_cmd
+                    .arg("--output")
+                    .arg(experiment_directory.join("perf.csv"))
+                    .arg("--pid")
+                    .arg(child.id().to_string())
+                    .spawn()?;
+
+                let strace_child = self
+                    .strace_cmd
+                    .arg("--output")
+                    .arg(experiment_directory.join("strace.log"))
+                    .arg("--attach")
+                    .arg(child.id().to_string())
+                    .spawn()?;
+
+                println!(
+                    "strace pid = {}; perf pid = {}; program pid = {}",
+                    strace_child.id(),
+                    perf_child.id(),
+                    child.id()
+                );
+
+                for mut child in [child, perf_child, strace_child] {
+                    match child.wait() {
+                        Ok(status) => match status.code().unwrap() {
+                            0 => {}
+                            n => {
+                                // not panicking because some tasks are too fast to be measured
+                                // so they terminate before strace and perf
+                                println!("process with pid {} exited with code {}", child.id(), n,)
+                            }
+                        },
+                        Err(e) => panic!("error waiting {}", e),
+                    };
+                }
+            }
+            Err(e) => panic!("process exited with error {}", e),
+        }
+        Ok(())
+    }
 }
 
-impl Collector for FullMetricsCollector {
+impl Collector for DefaultLinuxCollector {
     fn attach(
         &mut self,
         program: PathBuf,
         args: Vec<String>,
+        pre_run_executable: Option<PathBuf>,
+        pre_run_args: Vec<String>,
+        post_run_executable: Option<PathBuf>,
+        post_run_args: Vec<String>,
         output_directory: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         for n in 1..self.sample_size + 1 {
@@ -509,55 +604,34 @@ impl Collector for FullMetricsCollector {
                 File::create(experiment_directory.join("perf.csv"))?;
                 continue;
             }
-            let cmd = Command::new(&program)
-                .args(args.clone())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn();
-            match cmd {
-                Ok(child) => {
-                    let perf_child = self
-                        .perf_cmd
-                        .arg("--output")
-                        .arg(experiment_directory.join("perf.csv"))
-                        .arg("--pid")
-                        .arg(child.id().to_string())
-                        .spawn()?;
+            if let Some(cmd) = &pre_run_executable {
+                match Command::new(cmd)
+                    .args(pre_run_args.clone())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()?
+                    .code()
+                    .unwrap()
+                {
+                    0 => {}
+                    n => println!("pre exec cmd failed {}", n),
+                };
+            }
 
-                    let strace_child = self
-                        .strace_cmd
-                        .arg("--output")
-                        .arg(experiment_directory.join("strace.log"))
-                        .arg("--attach")
-                        .arg(child.id().to_string())
-                        .spawn()?;
+            self.run_experiment(&program, &args, &experiment_directory)?;
 
-                    println!(
-                        "strace pid = {}; perf pid = {}; program pid = {}",
-                        strace_child.id(),
-                        perf_child.id(),
-                        child.id()
-                    );
-
-                    for mut child in [child, perf_child, strace_child] {
-                        match child.wait() {
-                            Ok(status) => match status.code().unwrap() {
-                                0 => {}
-                                n => {
-                                    // not panicking because some tasks are too fast to be measured
-                                    // so they terminate before strace and perf
-                                    println!(
-                                        "process with pid {} exited with code {}",
-                                        child.id(),
-                                        n,
-                                    )
-                                }
-                            },
-                            Err(e) => panic!("error waiting {}", e),
-                        }
-                    }
-                }
-                Err(e) => panic!("process exited with error {}", e),
+            if let Some(cmd) = &post_run_executable {
+                match Command::new(cmd)
+                    .args(post_run_args.clone())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()?
+                    .code()
+                    .unwrap()
+                {
+                    0 => {}
+                    n => println!("post exec cmd failed {}", n),
+                };
             }
         }
         Ok(())
@@ -580,6 +654,10 @@ mod test {
             &mut self,
             _program: PathBuf,
             _args: Vec<String>,
+            _pre_run_executable: Option<PathBuf>,
+            _pre_run_args: Vec<String>,
+            _post_run_executable: Option<PathBuf>,
+            _post_run_args: Vec<String>,
             _output_directory: &Path,
         ) -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
@@ -677,11 +755,19 @@ mod test {
             String::from("{{ output_directory }}"),
             String::from("{{ num_threads }}"),
         ];
-        let args =
-            Profiler::build_and_expand_args(args, 1, output_directory.clone(), None, None).unwrap();
+        let args = Profiler::build_and_expand_args(
+            args,
+            vec![],
+            vec![],
+            1,
+            output_directory.clone(),
+            None,
+            None,
+        )
+        .unwrap();
 
-        assert_eq!(args[0], output_directory.clone().to_str().unwrap());
-        assert_eq!(args[1], String::from("1"));
+        assert_eq!(args.0[0], output_directory.clone().to_str().unwrap());
+        assert_eq!(args.0[1], String::from("1"));
 
         let args = vec![
             String::from("{{ output_directory }}"),
@@ -691,12 +777,14 @@ mod test {
         let gramine_metadata = GramineMetadata {
             manifest_path: output_directory.join("app.manifest.sgx"),
             encrypted_path: output_directory.join("encrypted_path"),
-            plaintext_path: output_directory.join("plaintext_path"),
+            untrusted_path: output_directory.join("plaintext_path"),
             trusted_path: output_directory.join("trusted_path"),
             tmpfs_path: output_directory.join("tmpfs_path"),
         };
         let args = Profiler::build_and_expand_args(
             args,
+            vec![],
+            vec![],
             1,
             output_directory.join("fallback"),
             Some(StorageType::Encrypted),
@@ -705,7 +793,7 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            args[0],
+            args.0[0],
             gramine_metadata
                 .manifest_path
                 .to_str()
@@ -714,10 +802,10 @@ mod test {
                 .replacen(".manifest.sgx", "", 1)
         );
         assert_eq!(
-            args[1],
+            args.0[1],
             output_directory.join("encrypted_path").to_str().unwrap()
         );
-        assert_eq!(args[2], String::from("1"));
+        assert_eq!(args.0[2], String::from("1"));
     }
 
     #[test]
@@ -732,12 +820,14 @@ mod test {
         let gramine_metadata = GramineMetadata {
             manifest_path: output_directory.join("app.manifest.sgx"),
             encrypted_path: output_directory.join("encrypted_path"),
-            plaintext_path: output_directory.join("plaintext_path"),
+            untrusted_path: output_directory.join("plaintext_path"),
             trusted_path: output_directory.join("trusted_path"),
             tmpfs_path: output_directory.join("tmpfs_path"),
         };
         Profiler::build_and_expand_args(
             args,
+            vec![],
+            vec![],
             1,
             output_directory.join("fallback"),
             None,
@@ -767,13 +857,13 @@ mod test {
         .unwrap();
 
         assert_eq!(config.tasks[0].storage_type.len(), 1);
-        assert_eq!(config.tasks[0].storage_type[0], StorageType::Plaintext);
+        assert_eq!(config.tasks[0].storage_type[0], StorageType::Untrusted);
     }
 
     #[test]
     fn test_collector() {
         let output_directory = TempDir::new().unwrap();
-        let mut collector = FullMetricsCollector::new(2, None);
+        let mut collector = DefaultLinuxCollector::new(2, None);
         collector
             .attach(
                 PathBuf::from("/bin/dd"),
@@ -782,6 +872,10 @@ mod test {
                     "of=/dev/null".into(),
                     "count=10000".into(),
                 ],
+                None,
+                vec![],
+                None,
+                vec![],
                 &output_directory.path().to_path_buf(),
             )
             .unwrap();

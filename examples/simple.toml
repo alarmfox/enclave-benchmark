@@ -6,8 +6,14 @@ num_threads = [2, 4]
 extra_perf_events = ["cpu-clock"]
 
 [[tasks]]
+pre_run_executable = "/usr/bin/echo"
+pre_run_args = ["Start task"]
+
 executable = "/bin/dd"
 args = ["if=/dev/zero", "of=/dev/null", "count=10000"]
+
+post_run_executable = "/usr/bin/echo"
+post_run_args = ["End task"]
 
 [[tasks]]
 executable = "/usr/bin/sleep"

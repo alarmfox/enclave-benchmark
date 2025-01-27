@@ -2,7 +2,7 @@
 sample_size = 3
 epc_size = ["64M", "128M"]
 output_directory = "/tmp/test"
-num_threads = [2, 4]
+num_threads = [4]
 extra_perf_events = ["cpu-clock"]
 
 [[tasks]]
@@ -10,11 +10,17 @@ executable = "/bin/dd"
 args = ["if=/dev/zero", "of=/dev/null", "count=10000"]
 
 [[tasks]]
+pre_run_executable = "/usr/bin/echo"
+pre_run_args = ["Starting make"]
+
 executable = "/usr/bin/make"
-args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "clean", "app"]
+args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "app", "output={{ output_directory }}"]
+
+post_run_executable = "/usr/bin/make"
+post_run_args = ["-C", "examples/basic-c-app", "clean", "output={{ output_directory }}"]
 
 [[tasks]]
-executable = "./examples/simple-writer/writer"
+executable = "examples/simple-writer/writer"
 args = ["{{ output_directory }}"]
-storage_type = ["encrypted", "plaintext", "tmpfs", "trusted"]
+storage_type = ["encrypted", "tmpfs", "trusted", "untrusted"]
 

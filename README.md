@@ -36,8 +36,14 @@ num_threads = [2, 4]
 extra_perf_events = ["cpu-clock"]
 
 [[tasks]]
+pre_run_executable = "/usr/bin/echo"
+pre_run_args = ["Before task"]
+
 executable = "/bin/dd"
 args = ["if=/dev/zero", "of=/dev/null", "count=10000"]
+
+post_run_executable = "/usr/bin/echo"
+post_run_args = ["After task"]
 
 [[tasks]]
 executable = "/usr/bin/make"
@@ -46,7 +52,7 @@ args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "clean", "app"
 [[tasks]]
 executable = "./examples/simple-writer/writer"
 args = ["{{ output_directory }}"]
-storage_type = ["encrypted", "plaintext", "tmpfs", "trusted"]
+storage_type = ["encrypted", "tmpfs", "trusted", "untrusted"]
 
 ```
 A workload file has 2 sections:
@@ -58,9 +64,9 @@ The `toml` file is dynamic. For example, if an application executes with differe
 
 Each task can specify a `storage_type` array (see `writer` task in the example above). Supported storage are:
 * encrypted: Gramine encrypted directory with an hardcoded key;
-* plaintext: simple storage with no integrity check and no encryption;
 * tmpfs: an in memory filesystem similar to tmpfs which is encrypted according to Gramine;
 * trusted: storage with integrity check and `chroot` environment;
+* untrusted: simple storage with no integrity check and no encryption;
 
 Results will be stored in `output_directory` and it will have the following structure (output reported only for task **dd**):
 
