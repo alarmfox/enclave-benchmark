@@ -30,9 +30,11 @@ jobs:
       with:
         toolchain: stable
         components: clippy, rustfmt
-    - name: Run clippy
+
+    - name: Run clippy and format
       run: |
-        rustup component add clippy 2> /dev/null
+        rustup component add clippy rustfmt 2> /dev/null
+        cargo fmt --all -- --check
         cargo clippy --all -- -D warnings
 
   test:
