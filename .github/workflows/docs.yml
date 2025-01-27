@@ -19,7 +19,7 @@ jobs:
         cache: pip
     - name: Install dependencies
       run: |
-          DEBIAN_FRONTEND=noninteractive apt-get-install -y make
+          DEBIAN_FRONTEND=noninteractive apt-get install -y make
           pip install -r requirements.txt 
     - name: Sphinx Build HTML
       run: make -C docs/web html
