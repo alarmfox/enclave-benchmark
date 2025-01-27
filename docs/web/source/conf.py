@@ -9,7 +9,7 @@
 project = 'TEE benchmark'
 copyright = '2025, Giuseppe Capasso'
 author = 'Giuseppe Capasso'
-release = 'v0.1-alpha'
+release = ''
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
