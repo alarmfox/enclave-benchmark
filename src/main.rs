@@ -278,6 +278,7 @@ sgx.allowed_files = [
         })
     }
 
+    #[allow(clippy::type_complexity)]
     fn build_and_expand_args(
         args: Vec<String>,
         pre_args: Vec<String>,
@@ -449,6 +450,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 trait Collector {
+    #[allow(clippy::too_many_arguments)]
     fn attach(
         &mut self,
         _program: PathBuf,
