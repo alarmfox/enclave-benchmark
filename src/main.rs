@@ -322,7 +322,7 @@ sgx.allowed_files = [
             .map(|arg_list| {
                 arg_list
                     .iter()
-                    .map(|template_string| handlebars.render_template(&template_string, &context))
+                    .map(|template_string| handlebars.render_template(template_string, &context))
                     .collect::<Result<Vec<String>, _>>()
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -532,11 +532,11 @@ impl DefaultLinuxCollector {
     fn run_experiment(
         &mut self,
         program: &PathBuf,
-        args: &Vec<String>,
+        args: &[String],
         experiment_directory: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let cmd = Command::new(program)
-            .args(args.clone())
+            .args(args)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn();
@@ -876,7 +876,7 @@ mod test {
                 vec![],
                 None,
                 vec![],
-                &output_directory.path().to_path_buf(),
+                output_directory.path(),
             )
             .unwrap();
 
