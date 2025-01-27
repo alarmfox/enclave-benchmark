@@ -2,8 +2,8 @@ name: "Sphinx: Render docs"
 
 on: 
   push:
-    # paths:
-    #   - docs/web/
+    paths:
+      - docs/web/
   
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
