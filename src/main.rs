@@ -13,7 +13,7 @@ use std::{
     fmt::{Debug, Display},
     fs::{create_dir, create_dir_all, File},
     io::Read,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
@@ -49,7 +49,6 @@ struct GlobalParams {
 #[derive(Debug, Clone)]
 struct GramineMetadata {
     manifest_path: PathBuf,
-    signature_path: PathBuf,
     encrypted_path: PathBuf,
     trusted_path: PathBuf,
     tmpfs_path: PathBuf,
@@ -265,7 +264,6 @@ sgx.allowed_files = [
             std::fs::write(&signature_path, sig_bytes)?;
             Ok(GramineMetadata {
                 manifest_path,
-                signature_path,
                 encrypted_path,
                 trusted_path,
                 tmpfs_path,
@@ -423,10 +421,8 @@ trait Collector {
         &mut self,
         _program: PathBuf,
         _args: Vec<String>,
-        _output_directory: &PathBuf,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(())
-    }
+        _output_directory: &Path,
+    ) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 struct FullMetricsCollector {
@@ -503,7 +499,7 @@ impl Collector for FullMetricsCollector {
         &mut self,
         program: PathBuf,
         args: Vec<String>,
-        output_directory: &PathBuf,
+        output_directory: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         for n in 1..self.sample_size + 1 {
             let experiment_directory = output_directory.join(PathBuf::from(n.to_string()));
@@ -579,7 +575,16 @@ mod test {
     use tempfile::TempDir;
     struct DummyCollector;
 
-    impl Collector for DummyCollector {}
+    impl Collector for DummyCollector {
+        fn attach(
+            &mut self,
+            _program: PathBuf,
+            _args: Vec<String>,
+            _output_directory: &Path,
+        ) -> Result<(), Box<dyn std::error::Error>> {
+            Ok(())
+        }
+    }
 
     use crate::*;
     #[test]
@@ -685,7 +690,6 @@ mod test {
 
         let gramine_metadata = GramineMetadata {
             manifest_path: output_directory.join("app.manifest.sgx"),
-            signature_path: output_directory.join("app.manifest.sig"),
             encrypted_path: output_directory.join("encrypted_path"),
             plaintext_path: output_directory.join("plaintext_path"),
             trusted_path: output_directory.join("trusted_path"),
@@ -727,7 +731,6 @@ mod test {
 
         let gramine_metadata = GramineMetadata {
             manifest_path: output_directory.join("app.manifest.sgx"),
-            signature_path: output_directory.join("app.manifest.sig"),
             encrypted_path: output_directory.join("encrypted_path"),
             plaintext_path: output_directory.join("plaintext_path"),
             trusted_path: output_directory.join("trusted_path"),
