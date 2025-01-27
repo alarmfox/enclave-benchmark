@@ -2,8 +2,9 @@ name: "Sphinx: Render docs"
 
 on: 
   push:
-    paths:
-      - docs/web/**
+    # paths:
+    #   - docs/web/
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -13,16 +14,22 @@ jobs:
     - uses: actions/checkout@v4
       with:
         persist-credentials: false
-    - name: Build HTML
-      uses: ammaraskar/sphinx-action@master
+    - uses: actions/setup-python@v5
       with:
-        pre-build-command: "pip install -r requirements.txt"
-        docs-folder: docs/web/
+        cache: pip
+    - name: Install dependencies
+      run: |
+          DEBIAN_FRONTEND=noninteractive apt-get-install -y make
+          pip install -r requirements.txt 
+    - name: Sphinx Build HTML
+      run: make -C docs/web html
+      
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: html-docs
         path: docs/web/build/html/
+
     - name: Deploy
       uses: peaceiris/actions-gh-pages@v3
       if: github.ref == 'refs/heads/main'
