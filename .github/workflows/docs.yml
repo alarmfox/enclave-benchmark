@@ -4,8 +4,6 @@ on:
   push:
     paths:
       - docs/web/**
-
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -18,7 +16,7 @@ jobs:
     - name: Build HTML
       uses: ammaraskar/sphinx-action@master
       with:
-        docs-folder: "docs/web/"
+        docs-folder: docs/web/
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
