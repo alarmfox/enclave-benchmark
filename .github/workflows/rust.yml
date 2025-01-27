@@ -1,4 +1,4 @@
-name: Rust
+name: Build and run tests
 
 on:
   push:
@@ -19,8 +19,21 @@ jobs:
     - name: Check out code
       uses: actions/checkout@v4
 
+    - name: Check
+      run: cargo check --verbose
+
     - name: Build
       run: cargo build --verbose
+
+    - uses: Swatinem/rust-cache@v2
+    - uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: stable
+        components: clippy, rustfmt
+    - name: Run clippy
+      run: |
+        rustup component add clippy 2> /dev/null
+        cargo clippy --all -- -D warnings
 
   test:
     name: test
