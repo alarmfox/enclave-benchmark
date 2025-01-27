@@ -10,14 +10,11 @@ use rsa::{
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
-    error,
     fmt::{Debug, Display},
     fs::{create_dir, create_dir_all, File},
     io::Read,
     path::PathBuf,
     process::{Command, Stdio},
-    thread::{self, sleep, JoinHandle},
-    time::Duration,
 };
 
 use clap::{arg, command, Parser};
@@ -71,10 +68,10 @@ enum StorageType {
 impl Display for StorageType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Encrypted => write!(f, "{}", "encrypted"),
-            Self::Plaintext => write!(f, "{}", "plaintext"),
-            Self::Tmpfs => write!(f, "{}", "tmpfs"),
-            Self::Trusted => write!(f, "{}", "trusted"),
+            Self::Encrypted => write!(f, "encrypted"),
+            Self::Plaintext => write!(f, "plaintext"),
+            Self::Tmpfs => write!(f, "tmpfs"),
+            Self::Trusted => write!(f, "trusted"),
         }
     }
 }
@@ -187,7 +184,7 @@ sgx.allowed_files = [
 
     #[tracing::instrument(level = "trace", skip(self), ret)]
     fn build_and_sign_enclave(
-        self: &Self,
+        &self,
         executable: &PathBuf,
         experiment_path: &PathBuf,
         num_threads: &usize,
@@ -221,7 +218,7 @@ sgx.allowed_files = [
             let sign_with_local_key = gramine.getattr("sign_with_local_key")?;
             let args = [
                 ("executable", executable.to_str().unwrap()),
-                ("epc_size", &epc_size),
+                ("epc_size", epc_size),
                 ("num_threads", &num_threads.to_string()),
                 ("encrypted_path", encrypted_path.to_str().unwrap()),
                 ("plaintext_path", plaintext_path.to_str().unwrap()),
@@ -332,7 +329,7 @@ sgx.allowed_files = [
     }
 
     #[tracing::instrument(skip(self), level = "info", ret)]
-    fn profile(self: &mut Self, task: Task) -> Result<(), Box<dyn std::error::Error>> {
+    fn profile(&mut self, task: Task) -> Result<(), Box<dyn std::error::Error>> {
         let program_name = task.executable.file_name().unwrap().to_str().unwrap();
         let task_path = self.output_directory.join(program_name);
 
@@ -365,7 +362,7 @@ sgx.allowed_files = [
                         program_name, num_threads, epc_size, storage_type
                     ));
                     self.collector
-                        .attach(PathBuf::from("gramine-sgx"), args, &result_path)?;
+                        .attach(PathBuf::from("gramine-sgx"), args, result_path)?;
                 }
             }
         }
@@ -423,7 +420,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 trait Collector {
     fn attach(
-        self: &mut Self,
+        &mut self,
         _program: PathBuf,
         _args: Vec<String>,
         _output_directory: &PathBuf,
@@ -503,7 +500,7 @@ impl FullMetricsCollector {
 
 impl Collector for FullMetricsCollector {
     fn attach(
-        self: &mut Self,
+        &mut self,
         program: PathBuf,
         args: Vec<String>,
         output_directory: &PathBuf,
