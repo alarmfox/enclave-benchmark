@@ -534,24 +534,28 @@ impl DefaultLinuxCollector {
             // discovery rapl paths: https://www.kernel.org/doc/html/next/power/powercap/powercap.html
             rapl_paths: {
                 let base_path = Path::new("/sys/devices/virtual/powercap/intel-rapl");
-
                 let mut rapl_paths = Vec::new();
-                for entry in base_path.read_dir().unwrap().flatten() {
-                    match Self::extract_rapl_path(&entry) {
-                        //found a path like /sys/devices/virtual/powercap/intel-rapl/intel-rapl:<num>/
-                        Some(s) => {
-                            let domain_name = s.0.clone();
-                            rapl_paths.push(s);
-                            for subentry in entry.path().read_dir().unwrap().flatten() {
-                                // /sys/devices/virtual/powercap/intel-rapl/intel-rapl:<num>/intel-rapl:<num>
-                                if let Some(r) = Self::extract_rapl_path(&subentry) {
-                                    let name = format!("{}-{}", domain_name, r.0);
-                                    rapl_paths.push((name, r.1));
-                                };
+
+                if base_path.is_dir() {
+                    for entry in base_path.read_dir().unwrap().flatten() {
+                        match Self::extract_rapl_path(&entry) {
+                            //found a path like /sys/devices/virtual/powercap/intel-rapl/intel-rapl:<num>/
+                            Some(s) => {
+                                let domain_name = s.0.clone();
+                                rapl_paths.push(s);
+                                for subentry in entry.path().read_dir().unwrap().flatten() {
+                                    // /sys/devices/virtual/powercap/intel-rapl/intel-rapl:<num>/intel-rapl:<num>
+                                    if let Some(r) = Self::extract_rapl_path(&subentry) {
+                                        let name = format!("{}-{}", domain_name, r.0);
+                                        rapl_paths.push((name, r.1));
+                                    };
+                                }
                             }
-                        }
-                        None => continue,
-                    };
+                            None => continue,
+                        };
+                    }
+                } else {
+                    println!("apparently system does not support RAPL interface");
                 }
                 rapl_paths
             },
