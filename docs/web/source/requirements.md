@@ -1,7 +1,13 @@
-# Setup
+# System requirements 
 This is setup page
 
-## Building Gramine
+## Host requirements
+
+
+## OS Dependencies 
+### Host setup
+
+### Building Gramine
 We need to build Gramine from source to get access to debug information at runtime. 
 
 ```sh
@@ -12,6 +18,5 @@ meson setup build/ \
   -Ddcap=enabled
 ```
 
-## Host setup
+### Docker setup 
 
-## Docker setup
