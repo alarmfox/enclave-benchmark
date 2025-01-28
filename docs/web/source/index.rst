@@ -16,6 +16,8 @@ A CLI application to run benchmark and collect metrics in a TEE environment.
    :maxdepth: 2
    :caption: Contents:
 
+
+   inner-working
    setup
    installation
    usage/basic
