@@ -4,9 +4,7 @@ use capstone::{
 };
 use crossbeam::channel::{unbounded, TryRecvError};
 use handlebars::Handlebars;
-use libc::{
-    ptrace, waitpid, PTRACE_SYSCALL, WIFEXITED, WIFSTOPPED,
-};
+use libc::{ptrace, waitpid, PTRACE_SYSCALL, WIFEXITED, WIFSTOPPED};
 use pyo3::{
     types::{IntoPyDict, PyAnyMethods, PyModule},
     Bound, PyAny, PyResult, Python,
@@ -21,11 +19,10 @@ use std::{
     ffi::c_long,
     fmt::{Debug, Display},
     fs::{self, create_dir, create_dir_all, DirEntry, File},
-    io::{Read, Write},
+    io::Read,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    ptr,
-    thread,
+    ptr, thread,
     time::{Duration, SystemTime},
 };
 
@@ -539,26 +536,22 @@ impl DefaultLinuxCollector {
                 let base_path = Path::new("/sys/devices/virtual/powercap/intel-rapl");
 
                 let mut rapl_paths = Vec::new();
-                for path in base_path.read_dir().unwrap() {
-                    if let Ok(entry) = path {
-                        match Self::extract_rapl_path(&entry) {
-                            //found a path like /sys/devices/virtual/powercap/intel-rapl/intel-rapl:<num>/
-                            Some(s) => {
-                                let domain_name = s.0.clone();
-                                rapl_paths.push(s);
-                                for subpath in entry.path().read_dir().unwrap() {
-                                    if let Ok(subentry) = subpath {
-                                        // /sys/devices/virtual/powercap/intel-rapl/intel-rapl:<num>/intel-rapl:<num>
-                                        if let Some(r) = Self::extract_rapl_path(&subentry) {
-                                            let name = format!("{}-{}", domain_name, r.0);
-                                            rapl_paths.push((name, r.1));
-                                        };
-                                    }
-                                }
+                for entry in base_path.read_dir().unwrap().flatten() {
+                    match Self::extract_rapl_path(&entry) {
+                        //found a path like /sys/devices/virtual/powercap/intel-rapl/intel-rapl:<num>/
+                        Some(s) => {
+                            let domain_name = s.0.clone();
+                            rapl_paths.push(s);
+                            for subentry in entry.path().read_dir().unwrap().flatten() {
+                                // /sys/devices/virtual/powercap/intel-rapl/intel-rapl:<num>/intel-rapl:<num>
+                                if let Some(r) = Self::extract_rapl_path(&subentry) {
+                                    let name = format!("{}-{}", domain_name, r.0);
+                                    rapl_paths.push((name, r.1));
+                                };
                             }
-                            None => continue,
-                        };
-                    }
+                        }
+                        None => continue,
+                    };
                 }
                 rapl_paths
             },
