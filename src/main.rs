@@ -5,7 +5,7 @@ use capstone::{
 use crossbeam::channel::{unbounded, TryRecvError};
 use handlebars::Handlebars;
 use libc::{
-    ptrace, waitpid, PTRACE_SINGLESTEP, PTRACE_SYSCALL, PTRACE_TRACEME, WIFEXITED, WIFSTOPPED,
+    ptrace, waitpid, PTRACE_SYSCALL, WIFEXITED, WIFSTOPPED,
 };
 use pyo3::{
     types::{IntoPyDict, PyAnyMethods, PyModule},
@@ -22,12 +22,9 @@ use std::{
     fmt::{Debug, Display},
     fs::{self, create_dir, create_dir_all, DirEntry, File},
     io::{Read, Write},
-    mem,
-    os::unix::process::CommandExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     ptr,
-    sync::{mpsc, Arc},
     thread,
     time::{Duration, SystemTime},
 };
@@ -552,12 +549,9 @@ impl DefaultLinuxCollector {
                                 for subpath in entry.path().read_dir().unwrap() {
                                     if let Ok(subentry) = subpath {
                                         // /sys/devices/virtual/powercap/intel-rapl/intel-rapl:<num>/intel-rapl:<num>
-                                        match Self::extract_rapl_path(&subentry) {
-                                            Some(r) => {
-                                                let name = format!("{}-{}", domain_name, r.0);
-                                                rapl_paths.push((name, r.1));
-                                            }
-                                            None => {}
+                                        if let Some(r) = Self::extract_rapl_path(&subentry) {
+                                            let name = format!("{}-{}", domain_name, r.0);
+                                            rapl_paths.push((name, r.1));
                                         };
                                     }
                                 }
@@ -651,12 +645,9 @@ impl DefaultLinuxCollector {
             let mut measures: HashMap<String, Vec<String>> = HashMap::new();
             loop {
                 if let Err(e) = rx1.try_recv() {
-                    match e {
-                        TryRecvError::Disconnected => {
-                            println!("got termination {}", e);
-                            break;
-                        }
-                        _ => {}
+                    if e == TryRecvError::Disconnected {
+                        println!("got termination {}", e);
+                        break;
                     }
                 }
                 let timestamp = SystemTime::now()
@@ -669,7 +660,7 @@ impl DefaultLinuxCollector {
                     let energy_uj = fs::read_to_string(rapl_path).unwrap().trim().to_string();
                     measures
                         .entry(name.to_owned())
-                        .or_insert(vec![])
+                        .or_default()
                         .push(format!("{},{}", timestamp, energy_uj));
                 }
 
