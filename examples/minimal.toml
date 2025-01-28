@@ -1,0 +1,11 @@
+[globals]
+sample_size = 3
+epc_size = ["64M"]
+output_directory = "/tmp/test"
+num_threads = [2, 4]
+extra_perf_events = ["cpu-clock"]
+
+[[tasks]]
+executable = "/usr/bin/sleep"
+args = ["1"]
+
