@@ -522,13 +522,13 @@ impl DefaultLinuxCollector {
                 }
                 let perf_events = Vec::from_iter(perf_events.iter().map(String::from));
                 let mut cmd = Command::new("perf");
-                cmd.arg("stat");
-                cmd.arg("--field-separator");
-                cmd.arg(",");
-                cmd.arg("--event");
-                cmd.arg(perf_events.join(","));
-                cmd.stdout(Stdio::null());
-                cmd.stderr(Stdio::null());
+                cmd.arg("stat")
+                    .arg("--field-separator")
+                    .arg(",")
+                    .arg("--event")
+                    .arg(perf_events.join(","))
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null());
                 cmd
             },
             // discovery rapl paths: https://www.kernel.org/doc/html/next/power/powercap/powercap.html
