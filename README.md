@@ -1,6 +1,8 @@
 # Intel based TEE benchmark
 This tool collects applications metrics when excuted in an Intel based TEE (SGX) using Gramine.
 
+Full documentation is available [here](https://alarmfox.github.io/enclave-benchmark/).
+
 **Note**: this project needs Gramine to be compiled with `debug` or `debugoptimized` options.
 For example, a build configuration would be:
 
@@ -68,70 +70,95 @@ Each task can specify a `storage_type` array (see `writer` task in the example a
 * trusted: storage with integrity check and `chroot` environment;
 * untrusted: simple storage with no integrity check and no encryption;
 
-Results will be stored in `output_directory` and it will have the following structure (output reported only for task **dd**):
+Results will be stored in `output_directory` and it will have the following structure (obtained executing `examples/minimal.toml`):
 
 ```sh
-# tree -L 6 /tmp/test
+tree -L 6 /tmp/test
 
 /tmp/test/
-|-- dd
-|   |-- gramine-sgx
-|   |   |-- dd-2-64M
-|   |   |   |-- dd-2-64M-plaintext
-|   |   |   |   |-- 1
-|   |   |   |   |   |-- perf.csv
-|   |   |   |   |   `-- strace.log
-|   |   |   |   |-- 2
-|   |   |   |   |   |-- perf.csv
-|   |   |   |   |   `-- strace.log
-|   |   |   |   `-- 3
-|   |   |   |       |-- perf.csv
-|   |   |   |       `-- strace.log
-|   |   |   |-- dd.manifest.sgx
-|   |   |   |-- dd.sig
-|   |   |   |-- encrypted
-|   |   |   |-- plaintext
-|   |   |   `-- trusted
-|   |   `-- dd-4-64M
-|   |       |-- dd-4-64M-plaintext
-|   |       |   |-- 1
-|   |       |   |   |-- perf.csv
-|   |       |   |   `-- strace.log
-|   |       |   |-- 2
-|   |       |   |   |-- perf.csv
-|   |       |   |   `-- strace.log
-|   |       |   `-- 3
-|   |       |       |-- perf.csv
-|   |       |       `-- strace.log
-|   |       |-- dd.manifest.sgx
-|   |       |-- dd.sig
-|   |       |-- encrypted
-|   |       |-- plaintext
-|   |       `-- trusted
-|   `-- no-gramine-sgx
-|       |-- dd-2
-|       |   |-- 1
-|       |   |   |-- perf.csv
-|       |   |   `-- strace.log
-|       |   |-- 2
-|       |   |   |-- perf.csv
-|       |   |   `-- strace.log
-|       |   |-- 3
-|       |   |   |-- perf.csv
-|       |   |   `-- strace.log
-|       |   `-- storage
-|       `-- dd-4
-|           |-- 1
-|           |   |-- perf.csv
-|           |   `-- strace.log
-|           |-- 2
-|           |   |-- perf.csv
-|           |   `-- strace.log
-|           |-- 3
-|           |   |-- perf.csv
-|           |   `-- strace.log
-|           `-- storage
 |-- private_key.pem
+`-- sleep
+    |-- gramine-sgx
+    |   |-- sleep-2-64M
+    |   |   |-- encrypted
+    |   |   |-- sleep-2-64M-untrusted
+    |   |   |   |-- 1
+    |   |   |   |   |-- package-0-core.csv
+    |   |   |   |   |-- package-0.csv
+    |   |   |   |   |-- perf.csv
+    |   |   |   |   `-- ptrace.log
+    |   |   |   |-- 2
+    |   |   |   |   |-- package-0-core.csv
+    |   |   |   |   |-- package-0.csv
+    |   |   |   |   |-- perf.csv
+    |   |   |   |   `-- ptrace.log
+    |   |   |   `-- 3
+    |   |   |       |-- package-0-core.csv
+    |   |   |       |-- package-0.csv
+    |   |   |       |-- perf.csv
+    |   |   |       `-- ptrace.log
+    |   |   |-- sleep.manifest.sgx
+    |   |   |-- sleep.sig
+    |   |   |-- trusted
+    |   |   `-- untrusted
+    |   `-- sleep-4-64M
+    |       |-- encrypted
+    |       |-- sleep-4-64M-untrusted
+    |       |   |-- 1
+    |       |   |   |-- package-0-core.csv
+    |       |   |   |-- package-0.csv
+    |       |   |   |-- perf.csv
+    |       |   |   `-- ptrace.log
+    |       |   |-- 2
+    |       |   |   |-- package-0-core.csv
+    |       |   |   |-- package-0.csv
+    |       |   |   |-- perf.csv
+    |       |   |   `-- ptrace.log
+    |       |   `-- 3
+    |       |       |-- package-0-core.csv
+    |       |       |-- package-0.csv
+    |       |       |-- perf.csv
+    |       |       `-- ptrace.log
+    |       |-- sleep.manifest.sgx
+    |       |-- sleep.sig
+    |       |-- trusted
+    |       `-- untrusted
+    `-- no-gramine-sgx
+        |-- sleep-2
+        |   |-- 1
+        |   |   |-- package-0-core.csv
+        |   |   |-- package-0.csv
+        |   |   |-- perf.csv
+        |   |   `-- ptrace.log
+        |   |-- 2
+        |   |   |-- package-0-core.csv
+        |   |   |-- package-0.csv
+        |   |   |-- perf.csv
+        |   |   `-- ptrace.log
+        |   |-- 3
+        |   |   |-- package-0-core.csv
+        |   |   |-- package-0.csv
+        |   |   |-- perf.csv
+        |   |   `-- ptrace.log
+        |   `-- storage
+        `-- sleep-4
+            |-- 1
+            |   |-- package-0-core.csv
+            |   |-- package-0.csv
+            |   |-- perf.csv
+            |   `-- ptrace.log
+            |-- 2
+            |   |-- package-0-core.csv
+            |   |-- package-0.csv
+            |   |-- perf.csv
+            |   `-- ptrace.log
+            |-- 3
+            |   |-- package-0-core.csv
+            |   |-- package-0.csv
+            |   |-- perf.csv
+            |   `-- ptrace.log
+            `-- storage
+
 ```
 ## Python bindings
 This projects uses [Gramine Python API](https://gramine.readthedocs.io/en/stable/python/api.html) 

@@ -1,4 +1,12 @@
+use capstone::{
+    arch::{self, BuildsCapstone, BuildsCapstoneSyntax},
+    Capstone,
+};
+use crossbeam::channel::{unbounded, TryRecvError};
 use handlebars::Handlebars;
+use libc::{
+    ptrace, waitpid, PTRACE_SINGLESTEP, PTRACE_SYSCALL, PTRACE_TRACEME, WIFEXITED, WIFSTOPPED,
+};
 use pyo3::{
     types::{IntoPyDict, PyAnyMethods, PyModule},
     Bound, PyAny, PyResult, Python,
@@ -10,11 +18,18 @@ use rsa::{
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
+    ffi::c_long,
     fmt::{Debug, Display},
-    fs::{create_dir, create_dir_all, File},
-    io::Read,
+    fs::{self, create_dir, create_dir_all, DirEntry, File},
+    io::{Read, Write},
+    mem,
+    os::unix::process::CommandExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    ptr,
+    sync::{mpsc, Arc},
+    thread,
+    time::{Duration, SystemTime},
 };
 
 use clap::{arg, command, Parser};
@@ -465,11 +480,13 @@ trait Collector {
 
 struct DefaultLinuxCollector {
     sample_size: u32,
-    strace_cmd: Command,
     perf_cmd: Command,
+    rapl_paths: Vec<(String, PathBuf)>,
 }
 
 impl DefaultLinuxCollector {
+    const INTERVAL: Duration = Duration::from_millis(250);
+    const ENERGY_CSV_HEADER: &str = "timestamp (microseconds),energy (microjoule)";
     const DEFAULT_PERF_EVENTS: [&str; 28] = [
         "user_time",
         "system_time",
@@ -503,14 +520,6 @@ impl DefaultLinuxCollector {
     fn new(sample_size: u32, extra_perf_events: Option<Vec<String>>) -> Self {
         Self {
             sample_size,
-            strace_cmd: {
-                let mut cmd = Command::new("strace");
-                cmd.arg("-ttt");
-                cmd.stdout(Stdio::null());
-                cmd.stderr(Stdio::null());
-                cmd
-            },
-
             perf_cmd: {
                 let mut perf_events: HashSet<String> =
                     HashSet::from_iter(Self::DEFAULT_PERF_EVENTS.iter().map(|v| v.to_string()));
@@ -528,6 +537,37 @@ impl DefaultLinuxCollector {
                 cmd.stderr(Stdio::null());
                 cmd
             },
+            // discovery rapl paths: https://www.kernel.org/doc/html/next/power/powercap/powercap.html
+            rapl_paths: {
+                let base_path = Path::new("/sys/devices/virtual/powercap/intel-rapl");
+
+                let mut rapl_paths = Vec::new();
+                for path in base_path.read_dir().unwrap() {
+                    if let Ok(entry) = path {
+                        match Self::extract_rapl_path(&entry) {
+                            //found a path like /sys/devices/virtual/powercap/intel-rapl/intel-rapl:<num>/
+                            Some(s) => {
+                                let domain_name = s.0.clone();
+                                rapl_paths.push(s);
+                                for subpath in entry.path().read_dir().unwrap() {
+                                    if let Ok(subentry) = subpath {
+                                        // /sys/devices/virtual/powercap/intel-rapl/intel-rapl:<num>/intel-rapl:<num>
+                                        match Self::extract_rapl_path(&subentry) {
+                                            Some(r) => {
+                                                let name = format!("{}-{}", domain_name, r.0);
+                                                rapl_paths.push((name, r.1));
+                                            }
+                                            None => {}
+                                        };
+                                    }
+                                }
+                            }
+                            None => continue,
+                        };
+                    }
+                }
+                rapl_paths
+            },
         }
     }
 
@@ -537,53 +577,179 @@ impl DefaultLinuxCollector {
         args: &[String],
         experiment_directory: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let cmd = Command::new(program)
-            .args(args)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
+        let cmd = {
+            Command::new(program)
+                .args(args)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+        };
         match cmd {
             Ok(child) => {
-                let perf_child = self
-                    .perf_cmd
+                self.perf_cmd
                     .arg("--output")
                     .arg(experiment_directory.join("perf.csv"))
                     .arg("--pid")
                     .arg(child.id().to_string())
                     .spawn()?;
 
-                let strace_child = self
-                    .strace_cmd
-                    .arg("--output")
-                    .arg(experiment_directory.join("strace.log"))
-                    .arg("--attach")
-                    .arg(child.id().to_string())
-                    .spawn()?;
-
-                println!(
-                    "strace pid = {}; perf pid = {}; program pid = {}",
-                    strace_child.id(),
-                    perf_child.id(),
-                    child.id()
-                );
-
-                for mut child in [child, perf_child, strace_child] {
-                    match child.wait() {
-                        Ok(status) => match status.code().unwrap() {
-                            0 => {}
-                            n => {
-                                // not panicking because some tasks are too fast to be measured
-                                // so they terminate before strace and perf
-                                println!("process with pid {} exited with code {}", child.id(), n,)
-                            }
-                        },
-                        Err(e) => panic!("error waiting {}", e),
-                    };
-                }
+                // Monitor the child process
+                self.monitor_child_process(child.id() as i32, experiment_directory.to_path_buf());
             }
             Err(e) => panic!("process exited with error {}", e),
         }
         Ok(())
+    }
+
+    fn monitor_child_process(&self, pid: i32, experiment_directory: PathBuf) {
+        let (tx, rx) = unbounded::<(u64, u64)>();
+        let rx1 = rx.clone();
+
+        let ptrace_output = experiment_directory.join("ptrace.log");
+        let collector_handle = thread::spawn(move || {
+            let _capstone = Capstone::new()
+                .x86()
+                .mode(arch::x86::ArchMode::Mode64)
+                .syntax(arch::x86::ArchSyntax::Att)
+                .detail(true)
+                .build()
+                .expect("cannot build capstone");
+
+            // TODO: understand what is happening
+            let mut program = Vec::new();
+            while let Ok((instruction, rip)) = rx.recv() {
+                let timestamp = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis();
+                program.push((timestamp, instruction, rip));
+            }
+            println!("got {} instructions", program.len());
+
+            // TODO disassemble instructions
+            //let instructions: Vec<u8> = program
+            //    .iter()
+            //    .flat_map(|(_, instruction, _)| instruction.to_ne_bytes())
+            //    .collect();
+            //let rip = program.first().map(|(_, _, rip)| *rip).unwrap_or(0);
+            //
+            //let mut file = File::create(ptrace_output).unwrap();
+            //if let Ok(insns) = capstone.disasm_all(&instructions, rip) {
+            //    for i in insns.as_ref().iter() {
+            //        file.write(&i.to_string().into_bytes()).unwrap();
+            //        file.write("\n".as_bytes()).unwrap();
+            //    }
+            //} else {
+            //    println!("Failed to disassemble instructions");
+            //};
+            File::create(ptrace_output).unwrap();
+        });
+
+        let rapl_paths = self.rapl_paths.clone();
+        let energy_handle = thread::spawn(move || {
+            // setup variables
+            let mut measures: HashMap<String, Vec<String>> = HashMap::new();
+            loop {
+                if let Err(e) = rx1.try_recv() {
+                    match e {
+                        TryRecvError::Disconnected => {
+                            println!("got termination {}", e);
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+                let timestamp = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos();
+                for (name, rapl_path) in &rapl_paths {
+                    // get measurement
+                    //println!("name: {}; path: {}", name, rapl_path.to_str().unwrap());
+                    let energy_uj = fs::read_to_string(rapl_path).unwrap().trim().to_string();
+                    measures
+                        .entry(name.to_owned())
+                        .or_insert(vec![])
+                        .push(format!("{},{}", timestamp, energy_uj));
+                }
+
+                thread::sleep(Self::INTERVAL);
+            }
+
+            // write measures on file
+            for (filename, data) in measures.iter_mut() {
+                data.insert(0, Self::ENERGY_CSV_HEADER.to_owned());
+                fs::write(
+                    experiment_directory.join(format!("{}.csv", filename)),
+                    data.join("\n"),
+                )
+                .unwrap();
+            }
+        });
+
+        let ptrace_handle = thread::spawn(move || {
+            unsafe {
+                let mut status = 0;
+                ptrace(
+                    libc::PTRACE_ATTACH,
+                    pid,
+                    ptr::null_mut::<c_long>(),
+                    ptr::null_mut::<c_long>(),
+                );
+                waitpid(pid, &mut status, 0); // Wait for the child to stop
+
+                while WIFSTOPPED(status) {
+                    let rip = ptrace(libc::PTRACE_PEEKUSER, pid, libc::RIP * 8, 0) as u64;
+                    let instruction =
+                        ptrace(libc::PTRACE_PEEKTEXT, pid, (rip + 8) as *mut c_long, 0) as u64;
+
+                    tx.send((instruction, rip)).unwrap();
+
+                    // moving to PTRACE_SYSCALL because PTRACE_SINGLESTEP is too slow
+                    if ptrace(
+                        PTRACE_SYSCALL,
+                        pid,
+                        ptr::null_mut::<c_long>(),
+                        ptr::null_mut::<c_long>(),
+                    ) == -1
+                    {
+                        println!("Failed to step for next instruction");
+                    }
+
+                    // Wait for the next event
+                    waitpid(pid, &mut status, 0);
+                }
+
+                if WIFEXITED(status) {
+                    println!("Child exited with status {}", status);
+                }
+                // signal other threads to stop
+                drop(tx);
+            }
+        });
+
+        for handle in [collector_handle, energy_handle, ptrace_handle] {
+            handle.join().unwrap();
+        }
+    }
+
+    fn extract_rapl_path(entry: &DirEntry) -> Option<(String, PathBuf)> {
+        if entry
+            .file_name()
+            .to_str()
+            .unwrap()
+            .starts_with("intel-rapl:")
+            && entry.path().is_dir()
+        {
+            let component = fs::read_to_string(entry.path().join("name"))
+                .unwrap()
+                .trim()
+                .to_owned();
+            let energy_uj_path = entry.path().join("energy_uj");
+            Some((component, energy_uj_path))
+        } else {
+            None
+        }
     }
 }
 
@@ -602,8 +768,11 @@ impl Collector for DefaultLinuxCollector {
             let experiment_directory = output_directory.join(PathBuf::from(n.to_string()));
             create_dir_all(&experiment_directory)?;
             if program.to_str().unwrap() == "gramine-sgx" {
-                File::create(experiment_directory.join("strace.log"))?;
+                File::create(experiment_directory.join("ptrace.log"))?;
                 File::create(experiment_directory.join("perf.csv"))?;
+                for (name, _) in &self.rapl_paths {
+                    File::create(experiment_directory.join(format!("{}.csv", name)))?;
+                }
                 continue;
             }
             if let Some(cmd) = &pre_run_executable {
@@ -865,14 +1034,15 @@ mod test {
     #[test]
     fn test_collector() {
         let output_directory = TempDir::new().unwrap();
-        let mut collector = DefaultLinuxCollector::new(2, None);
+        let sample_size = 1;
+        let mut collector = DefaultLinuxCollector::new(sample_size, None);
         collector
             .attach(
                 PathBuf::from("/bin/dd"),
                 vec![
                     "if=/dev/zero".into(),
                     "of=/dev/null".into(),
-                    "count=10000".into(),
+                    "count=10".into(),
                 ],
                 None,
                 vec![],
@@ -882,15 +1052,21 @@ mod test {
             )
             .unwrap();
 
-        for i in 1..3 {
+        for i in 1..sample_size + 1 {
             assert!(output_directory
                 .path()
-                .join(format!("{}/strace.log", i))
+                .join(format!("{}/ptrace.log", i))
                 .is_file());
             assert!(output_directory
                 .path()
                 .join(format!("{}/perf.csv", i))
                 .is_file());
+            for (name, _) in &collector.rapl_paths {
+                assert!(output_directory
+                    .path()
+                    .join(format!("{}/{}.csv", i, name))
+                    .is_file())
+            }
         }
     }
 }
