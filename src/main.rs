@@ -3,6 +3,7 @@ use capstone::{
     Capstone,
 };
 use crossbeam::channel::{unbounded, TryRecvError};
+use duration_str::deserialize_duration;
 use handlebars::Handlebars;
 use libc::{ptrace, waitpid, PTRACE_SYSCALL, WIFEXITED, WIFSTOPPED};
 use pyo3::{
@@ -27,7 +28,7 @@ use std::{
 };
 
 use clap::{arg, command, Parser};
-use tracing::Level;
+use tracing::{debug, error, trace, warn, Level};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -53,6 +54,16 @@ struct GlobalParams {
     epc_size: Vec<String>,
     output_directory: PathBuf,
     extra_perf_events: Option<Vec<String>>,
+
+    #[serde(
+        deserialize_with = "deserialize_duration",
+        default = "default_energy_sample_interval"
+    )]
+    energy_sample_interval: Duration,
+}
+
+fn default_energy_sample_interval() -> Duration {
+    Duration::from_millis(500)
 }
 
 #[derive(Debug, Clone)]
@@ -432,7 +443,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // You can see how many times a particular flag or argument occurred
     // Note, only flags can have multiple occurrences
     let log_level = match cli.verbose {
-        0 => Level::ERROR,
+        0 => Level::WARN,
         1 => Level::INFO,
         2 => Level::DEBUG,
         _ => Level::TRACE,
@@ -442,12 +453,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = File::open(cli.config_path)?.read_to_string(&mut config)?;
     let config = toml::from_str::<Config>(config.as_str())?;
 
+    let config = dbg!(config);
+
     let mut profiler = Profiler::new(
         config.globals.num_threads,
         config.globals.epc_size,
         config.globals.output_directory,
         Box::new(DefaultLinuxCollector::new(
             config.globals.sample_size,
+            config.globals.energy_sample_interval,
             config.globals.extra_perf_events,
         )),
     )?;
@@ -476,10 +490,10 @@ struct DefaultLinuxCollector {
     sample_size: u32,
     perf_cmd: Command,
     rapl_paths: Vec<(String, PathBuf)>,
+    energy_sample_interval: Duration,
 }
 
 impl DefaultLinuxCollector {
-    const INTERVAL: Duration = Duration::from_millis(250);
     const ENERGY_CSV_HEADER: &str = "timestamp (microseconds),energy (microjoule)";
     const DEFAULT_PERF_EVENTS: [&str; 28] = [
         "user_time",
@@ -511,9 +525,14 @@ impl DefaultLinuxCollector {
         "cpu-cycles",
         "page-faults",
     ];
-    fn new(sample_size: u32, extra_perf_events: Option<Vec<String>>) -> Self {
+    fn new(
+        sample_size: u32,
+        energy_sample_interval: Duration,
+        extra_perf_events: Option<Vec<String>>,
+    ) -> Self {
         Self {
             sample_size,
+            energy_sample_interval,
             perf_cmd: {
                 let mut perf_events: HashSet<String> =
                     HashSet::from_iter(Self::DEFAULT_PERF_EVENTS.iter().map(|v| v.to_string()));
@@ -555,7 +574,7 @@ impl DefaultLinuxCollector {
                         };
                     }
                 } else {
-                    println!("apparently system does not support RAPL interface");
+                    warn!("apparently system does not support RAPL interface; skipping");
                 }
                 rapl_paths
             },
@@ -615,7 +634,7 @@ impl DefaultLinuxCollector {
                     .as_millis();
                 program.push((timestamp, instruction, rip));
             }
-            println!("got {} instructions", program.len());
+            debug!("got {} instructions", program.len());
 
             // TODO disassemble instructions
             //let instructions: Vec<u8> = program
@@ -637,13 +656,14 @@ impl DefaultLinuxCollector {
         });
 
         let rapl_paths = self.rapl_paths.clone();
+        let interval = self.energy_sample_interval;
         let energy_handle = thread::spawn(move || {
             // setup variables
             let mut measures: HashMap<String, Vec<String>> = HashMap::new();
             loop {
                 if let Err(e) = rx1.try_recv() {
                     if e == TryRecvError::Disconnected {
-                        println!("got termination {}", e);
+                        trace!("got termination {}", e);
                         break;
                     }
                 }
@@ -653,7 +673,6 @@ impl DefaultLinuxCollector {
                     .as_nanos();
                 for (name, rapl_path) in &rapl_paths {
                     // get measurement
-                    //println!("name: {}; path: {}", name, rapl_path.to_str().unwrap());
                     let energy_uj = fs::read_to_string(rapl_path).unwrap().trim().to_string();
                     measures
                         .entry(name.to_owned())
@@ -661,7 +680,7 @@ impl DefaultLinuxCollector {
                         .push(format!("{},{}", timestamp, energy_uj));
                 }
 
-                thread::sleep(Self::INTERVAL);
+                thread::sleep(interval);
             }
 
             // write measures on file
@@ -701,7 +720,7 @@ impl DefaultLinuxCollector {
                         ptr::null_mut::<c_long>(),
                     ) == -1
                     {
-                        println!("Failed to step for next instruction");
+                        error!("Failed to step for next instruction");
                     }
 
                     // Wait for the next event
@@ -709,7 +728,7 @@ impl DefaultLinuxCollector {
                 }
 
                 if WIFEXITED(status) {
-                    println!("Child exited with status {}", status);
+                    trace!("Child {} exited with status {}", pid, status);
                 }
                 // signal other threads to stop
                 drop(tx);
@@ -755,6 +774,8 @@ impl Collector for DefaultLinuxCollector {
         for n in 1..self.sample_size + 1 {
             let experiment_directory = output_directory.join(PathBuf::from(n.to_string()));
             create_dir_all(&experiment_directory)?;
+
+            // i have no access to sgx machine yet
             if program.to_str().unwrap() == "gramine-sgx" {
                 File::create(experiment_directory.join("ptrace.log"))?;
                 File::create(experiment_directory.join("perf.csv"))?;
@@ -763,6 +784,7 @@ impl Collector for DefaultLinuxCollector {
                 }
                 continue;
             }
+
             if let Some(cmd) = &pre_run_executable {
                 match Command::new(cmd)
                     .args(pre_run_args.clone())
@@ -773,7 +795,11 @@ impl Collector for DefaultLinuxCollector {
                     .unwrap()
                 {
                     0 => {}
-                    n => println!("pre exec cmd failed {}", n),
+                    n => warn!(
+                        "pre exec command {:?} exited with status {}",
+                        n,
+                        cmd.to_str().unwrap()
+                    ),
                 };
             }
 
@@ -789,7 +815,11 @@ impl Collector for DefaultLinuxCollector {
                     .unwrap()
                 {
                     0 => {}
-                    n => println!("post exec cmd failed {}", n),
+                    n => warn!(
+                        "pre exec command {:?} exited with status {}",
+                        n,
+                        cmd.to_str().unwrap()
+                    ),
                 };
             }
         }
@@ -1023,14 +1053,15 @@ mod test {
     fn test_collector() {
         let output_directory = TempDir::new().unwrap();
         let sample_size = 1;
-        let mut collector = DefaultLinuxCollector::new(sample_size, None);
+        let mut collector =
+            DefaultLinuxCollector::new(sample_size, Duration::from_micros(500), None);
         collector
             .attach(
                 PathBuf::from("/bin/dd"),
                 vec![
                     "if=/dev/zero".into(),
                     "of=/dev/null".into(),
-                    "count=10".into(),
+                    "count=10000".into(),
                 ],
                 None,
                 vec![],
