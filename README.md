@@ -36,6 +36,7 @@ epc_size = ["64M", "128M"]
 output_directory = "/tmp/test"
 num_threads = [2, 4]
 extra_perf_events = ["cpu-clock"]
+energy_sample_interval = "100ms"
 
 [[tasks]]
 pre_run_executable = "/usr/bin/echo"
@@ -84,16 +85,22 @@ tree -L 6 /tmp/test
     |   |   |-- sleep-2-64M-untrusted
     |   |   |   |-- 1
     |   |   |   |   |-- package-0-core.csv
+    |   |   |   |   |-- package-0-dram.csv
+    |   |   |   |   |-- package-0-uncore.csv
     |   |   |   |   |-- package-0.csv
     |   |   |   |   |-- perf.csv
     |   |   |   |   `-- ptrace.log
     |   |   |   |-- 2
     |   |   |   |   |-- package-0-core.csv
+    |   |   |   |   |-- package-0-dram.csv
+    |   |   |   |   |-- package-0-uncore.csv
     |   |   |   |   |-- package-0.csv
     |   |   |   |   |-- perf.csv
     |   |   |   |   `-- ptrace.log
     |   |   |   `-- 3
     |   |   |       |-- package-0-core.csv
+    |   |   |       |-- package-0-dram.csv
+    |   |   |       |-- package-0-uncore.csv
     |   |   |       |-- package-0.csv
     |   |   |       |-- perf.csv
     |   |   |       `-- ptrace.log
@@ -106,16 +113,22 @@ tree -L 6 /tmp/test
     |       |-- sleep-4-64M-untrusted
     |       |   |-- 1
     |       |   |   |-- package-0-core.csv
+    |       |   |   |-- package-0-dram.csv
+    |       |   |   |-- package-0-uncore.csv
     |       |   |   |-- package-0.csv
     |       |   |   |-- perf.csv
     |       |   |   `-- ptrace.log
     |       |   |-- 2
     |       |   |   |-- package-0-core.csv
+    |       |   |   |-- package-0-dram.csv
+    |       |   |   |-- package-0-uncore.csv
     |       |   |   |-- package-0.csv
     |       |   |   |-- perf.csv
     |       |   |   `-- ptrace.log
     |       |   `-- 3
     |       |       |-- package-0-core.csv
+    |       |       |-- package-0-dram.csv
+    |       |       |-- package-0-uncore.csv
     |       |       |-- package-0.csv
     |       |       |-- perf.csv
     |       |       `-- ptrace.log
@@ -127,16 +140,22 @@ tree -L 6 /tmp/test
         |-- sleep-2
         |   |-- 1
         |   |   |-- package-0-core.csv
+        |   |   |-- package-0-dram.csv
+        |   |   |-- package-0-uncore.csv
         |   |   |-- package-0.csv
         |   |   |-- perf.csv
         |   |   `-- ptrace.log
         |   |-- 2
         |   |   |-- package-0-core.csv
+        |   |   |-- package-0-dram.csv
+        |   |   |-- package-0-uncore.csv
         |   |   |-- package-0.csv
         |   |   |-- perf.csv
         |   |   `-- ptrace.log
         |   |-- 3
         |   |   |-- package-0-core.csv
+        |   |   |-- package-0-dram.csv
+        |   |   |-- package-0-uncore.csv
         |   |   |-- package-0.csv
         |   |   |-- perf.csv
         |   |   `-- ptrace.log
@@ -144,16 +163,22 @@ tree -L 6 /tmp/test
         `-- sleep-4
             |-- 1
             |   |-- package-0-core.csv
+            |   |-- package-0-dram.csv
+            |   |-- package-0-uncore.csv
             |   |-- package-0.csv
             |   |-- perf.csv
             |   `-- ptrace.log
             |-- 2
             |   |-- package-0-core.csv
+            |   |-- package-0-dram.csv
+            |   |-- package-0-uncore.csv
             |   |-- package-0.csv
             |   |-- perf.csv
             |   `-- ptrace.log
             |-- 3
             |   |-- package-0-core.csv
+            |   |-- package-0-dram.csv
+            |   |-- package-0-uncore.csv
             |   |-- package-0.csv
             |   |-- perf.csv
             |   `-- ptrace.log
