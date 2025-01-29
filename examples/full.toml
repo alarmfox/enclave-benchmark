@@ -2,8 +2,9 @@
 sample_size = 3
 epc_size = ["64M", "128M"]
 output_directory = "/tmp/test"
-num_threads = [4]
+num_threads = [1, 2]
 extra_perf_events = ["cpu-clock"]
+energy_sample_interval = "250ms"
 
 [[tasks]]
 executable = "/bin/dd"
