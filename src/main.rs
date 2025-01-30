@@ -450,8 +450,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let mut config = String::new();
     tracing_subscriber::fmt().with_max_level(log_level).init();
-    let _ = File::open(cli.config_path)?.read_to_string(&mut config)?;
-    let config = toml::from_str::<Config>(config.as_str())?;
+    let n = File::open(cli.config_path)?.read_to_string(&mut config)?;
+    let config = toml::from_str::<Config>(&config[..n])?;
 
     let profiler = Profiler::new(
         config.globals.num_threads,
@@ -812,7 +812,7 @@ impl Collector for DefaultLinuxCollector {
                 {
                     0 => {}
                     n => warn!(
-                        "pre exec command {:?} exited with status {}",
+                        "post exec command {:?} exited with status {}",
                         n,
                         cmd.to_str().unwrap()
                     ),
