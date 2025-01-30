@@ -7,7 +7,7 @@ use duration_str::deserialize_duration;
 use handlebars::Handlebars;
 use libc::{ptrace, waitpid, PTRACE_SYSCALL, WIFEXITED, WIFSTOPPED};
 use pyo3::{
-    types::{IntoPyDict, PyAnyMethods, PyList, PyModule},
+    types::{IntoPyDict, PyAnyMethods, PyModule},
     Bound, PyAny, PyResult, Python,
 };
 use rsa::{
