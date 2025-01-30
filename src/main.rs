@@ -7,7 +7,7 @@ use duration_str::deserialize_duration;
 use handlebars::Handlebars;
 use libc::{ptrace, waitpid, PTRACE_SYSCALL, WIFEXITED, WIFSTOPPED};
 use pyo3::{
-    types::{IntoPyDict, PyAnyMethods, PyModule},
+    types::{IntoPyDict, PyAnyMethods, PyList, PyModule},
     Bound, PyAny, PyResult, Python,
 };
 use rsa::{
@@ -149,7 +149,7 @@ libos.entrypoint = "{{ executable }}"
 loader.log_level = "none"
 
 loader.env.OMP_NUM_THREADS = "{{ num_threads }}"
-loader.env.LD_LIBRARY_PATH = "/lib"
+# loader.env.LD_LIBRARY_PATH = "/lib"
 loader.insecure__use_cmdline_argv = true
 
 fs.mounts = [
@@ -175,10 +175,11 @@ sgx.edmm_enable = false
 sgx.trusted_files = [
   "file:{{ executable }}",
   "file:{{ gramine.runtimedir() }}/",
+  "file:{{ executable_path }}/",
 ]
 
 sgx.allowed_files = [
-  "file::{{ untrusted_path }}/"
+  "file::{{ untrusted_path }}/",
 ]
 "#;
     fn new(
@@ -218,19 +219,21 @@ sgx.allowed_files = [
     ) -> PyResult<GramineMetadata> {
         // ported from https://gramine.readthedocs.io/en/stable/python/api.html
         Python::with_gil(|py| {
-            let program_name = executable.file_name().unwrap().to_str().unwrap();
+            let executable_name = executable.file_name().unwrap().to_str().unwrap();
+            let executable_path = executable.parent().unwrap();
             let manifest_path =
-                experiment_path.join(PathBuf::from(format!("{}.manifest.sgx", program_name)));
+                experiment_path.join(PathBuf::from(format!("{}.manifest.sgx", executable_name)));
 
             let signature_path =
-                experiment_path.join(PathBuf::from(format!("{}.sig", program_name)));
+                experiment_path.join(PathBuf::from(format!("{}.sig", executable_name)));
 
             let encrypted_path = experiment_path.join("encrypted");
-            create_dir_all(&encrypted_path)?;
             let trusted_path = experiment_path.join("trusted");
-            create_dir_all(&trusted_path)?;
             let untrusted_path = experiment_path.join("untrusted");
-            create_dir_all(&untrusted_path)?;
+
+            for path in [&encrypted_path, &trusted_path, &untrusted_path] {
+                create_dir_all(path)?;
+            }
 
             let tmpfs_path = PathBuf::from("/tmp");
 
@@ -249,6 +252,7 @@ sgx.allowed_files = [
                 ("untrusted_path", untrusted_path.to_str().unwrap()),
                 ("trusted_path", trusted_path.to_str().unwrap()),
                 ("tmpfs_path", tmpfs_path.to_str().unwrap()),
+                ("executable_path", executable_path.to_str().unwrap()),
             ]
             .into_py_dict(py)?;
 
@@ -328,13 +332,6 @@ sgx.allowed_files = [
                 "output_directory",
                 output_directory.to_str().unwrap().to_string(),
             ),
-            ("storage_directory", {
-                let path = match gramine_metadata.clone() {
-                    Some(metadata) => metadata.untrusted_path,
-                    None => fallback_storage_path,
-                };
-                path.to_str().unwrap().to_string()
-            }),
         ]);
         let handlebars = Handlebars::new();
 
@@ -347,6 +344,7 @@ sgx.allowed_files = [
                     .collect::<Result<Vec<String>, _>>()
             })
             .collect::<Result<Vec<_>, _>>()?;
+
         if let Some(metadata) = gramine_metadata {
             args[0].insert(
                 0,
@@ -362,7 +360,7 @@ sgx.allowed_files = [
     }
 
     #[tracing::instrument(skip(self), level = "info", ret)]
-    fn profile(&mut self, task: Task) -> Result<(), Box<dyn std::error::Error>> {
+    fn profile(&self, task: Task) -> Result<(), Box<dyn std::error::Error>> {
         let program_name = task.executable.file_name().unwrap().to_str().unwrap();
         let task_path = self.output_directory.join(program_name);
 
@@ -392,6 +390,7 @@ sgx.allowed_files = [
                         Some(storage_type.clone()),
                         Some(gramine_metadata.clone()),
                     )?;
+
                     let result_path = &experiment_path.join(format!(
                         "{}-{}-{}-{}",
                         program_name, num_threads, epc_size, storage_type
@@ -411,6 +410,7 @@ sgx.allowed_files = [
         for num_threads in &self.num_threads {
             let experiment_path =
                 task_path.join(format!("no-gramine-sgx/{}-{}", program_name, num_threads));
+
             let storage_path = experiment_path.join("storage");
             create_dir_all(&storage_path)?;
 
@@ -453,9 +453,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = File::open(cli.config_path)?.read_to_string(&mut config)?;
     let config = toml::from_str::<Config>(config.as_str())?;
 
-    let config = dbg!(config);
-
-    let mut profiler = Profiler::new(
+    let profiler = Profiler::new(
         config.globals.num_threads,
         config.globals.epc_size,
         config.globals.output_directory,
@@ -475,7 +473,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 trait Collector {
     #[allow(clippy::too_many_arguments)]
     fn attach(
-        &mut self,
+        &self,
         _program: PathBuf,
         _args: Vec<String>,
         _pre_run_executable: Option<PathBuf>,
@@ -488,7 +486,7 @@ trait Collector {
 
 struct DefaultLinuxCollector {
     sample_size: u32,
-    perf_cmd: Command,
+    perf_events: Vec<String>,
     rapl_paths: Vec<(String, PathBuf)>,
     energy_sample_interval: Duration,
 }
@@ -533,22 +531,13 @@ impl DefaultLinuxCollector {
         Self {
             sample_size,
             energy_sample_interval,
-            perf_cmd: {
+            perf_events: {
                 let mut perf_events: HashSet<String> =
                     HashSet::from_iter(Self::DEFAULT_PERF_EVENTS.iter().map(|v| v.to_string()));
                 for extra_perf_event in extra_perf_events.unwrap_or_default() {
                     perf_events.insert(extra_perf_event);
                 }
-                let perf_events = Vec::from_iter(perf_events.iter().map(String::from));
-                let mut cmd = Command::new("perf");
-                cmd.arg("stat")
-                    .arg("--field-separator")
-                    .arg(",")
-                    .arg("--event")
-                    .arg(perf_events.join(","))
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null());
-                cmd
+                Vec::from_iter(perf_events.iter().map(String::from))
             },
             // discovery rapl paths: https://www.kernel.org/doc/html/next/power/powercap/powercap.html
             rapl_paths: {
@@ -582,7 +571,7 @@ impl DefaultLinuxCollector {
     }
 
     fn run_experiment(
-        &mut self,
+        &self,
         program: &PathBuf,
         args: &[String],
         experiment_directory: &Path,
@@ -596,11 +585,18 @@ impl DefaultLinuxCollector {
         };
         match cmd {
             Ok(child) => {
-                self.perf_cmd
+                Command::new("perf")
+                    .arg("stat")
+                    .arg("--field-separator")
+                    .arg(",")
+                    .arg("--event")
+                    .arg(self.perf_events.join(","))
                     .arg("--output")
                     .arg(experiment_directory.join("perf.csv"))
                     .arg("--pid")
                     .arg(child.id().to_string())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
                     .spawn()?;
 
                 // Monitor the child process
@@ -762,7 +758,7 @@ impl DefaultLinuxCollector {
 
 impl Collector for DefaultLinuxCollector {
     fn attach(
-        &mut self,
+        &self,
         program: PathBuf,
         args: Vec<String>,
         pre_run_executable: Option<PathBuf>,
@@ -840,7 +836,7 @@ mod test {
 
     impl Collector for DummyCollector {
         fn attach(
-            &mut self,
+            &self,
             _program: PathBuf,
             _args: Vec<String>,
             _pre_run_executable: Option<PathBuf>,
@@ -1053,8 +1049,7 @@ mod test {
     fn test_collector() {
         let output_directory = TempDir::new().unwrap();
         let sample_size = 1;
-        let mut collector =
-            DefaultLinuxCollector::new(sample_size, Duration::from_micros(500), None);
+        let collector = DefaultLinuxCollector::new(sample_size, Duration::from_micros(500), None);
         collector
             .attach(
                 PathBuf::from("/bin/dd"),

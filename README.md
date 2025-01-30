@@ -29,6 +29,7 @@ saving results in `csv`.
 applications are allowed. In the future, options to specify custom manifest will be addded.
 
 Example files are stored in the `examples` directory. Below `examples/full.toml`:
+
 ```toml
 [globals]
 sample_size = 3
