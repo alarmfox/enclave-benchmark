@@ -89,14 +89,14 @@ impl DefaultLinuxCollector {
 
                 if base_path.is_dir() {
                     for entry in base_path.read_dir().unwrap().flatten() {
-                        match Self::extract_rapl_path(&entry) {
+                        match extract_rapl_path(&entry) {
                             //found a path like /sys/devices/virtual/powercap/intel-rapl/intel-rapl:<num>/
                             Some(s) => {
                                 let domain_name = s.0.clone();
                                 rapl_paths.push(s);
                                 for subentry in entry.path().read_dir().unwrap().flatten() {
                                     // /sys/devices/virtual/powercap/intel-rapl/intel-rapl:<num>/intel-rapl:<num>
-                                    if let Some(r) = Self::extract_rapl_path(&subentry) {
+                                    if let Some(r) = extract_rapl_path(&subentry) {
                                         let name = format!("{}-{}", domain_name, r.0);
                                         rapl_paths.push((name, r.1));
                                     };
@@ -113,6 +113,7 @@ impl DefaultLinuxCollector {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn run_experiment(
         &self,
         program: &PathBuf,
@@ -150,7 +151,7 @@ impl DefaultLinuxCollector {
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip(self))]
+    #[tracing::instrument(level = "trace", skip(self))]
     fn monitor_child_process(&self, child: Child, experiment_directory: PathBuf) {
         let (tx, rx) = unbounded::<(u64, u64)>();
         let rx1 = rx.clone();
@@ -159,12 +160,11 @@ impl DefaultLinuxCollector {
         let rapl_paths = self.rapl_paths.clone();
         let interval = self.energy_sample_interval;
         let energy_handle = thread::spawn(move || {
-            // setup variables
             let mut measures: HashMap<String, Vec<String>> = HashMap::new();
             loop {
                 if let Err(e) = rx1.try_recv() {
                     if e == TryRecvError::Disconnected {
-                        trace!("got termination {}", e);
+                        trace!("got termination signal {}", e);
                         break;
                     }
                 }
@@ -218,25 +218,6 @@ impl DefaultLinuxCollector {
 
         for handle in [energy_handle, wait_child_handle] {
             handle.join().unwrap();
-        }
-    }
-
-    fn extract_rapl_path(entry: &DirEntry) -> Option<(String, PathBuf)> {
-        if entry
-            .file_name()
-            .to_str()
-            .unwrap()
-            .starts_with("intel-rapl:")
-            && entry.path().is_dir()
-        {
-            let component = fs::read_to_string(entry.path().join("name"))
-                .unwrap()
-                .trim()
-                .to_owned();
-            let energy_uj_path = entry.path().join("energy_uj");
-            Some((component, energy_uj_path))
-        } else {
-            None
         }
     }
 }
@@ -309,6 +290,24 @@ impl Collector for DefaultLinuxCollector {
     }
 }
 
+fn extract_rapl_path(entry: &DirEntry) -> Option<(String, PathBuf)> {
+    if entry
+        .file_name()
+        .to_str()
+        .unwrap()
+        .starts_with("intel-rapl:")
+        && entry.path().is_dir()
+    {
+        let component = fs::read_to_string(entry.path().join("name"))
+            .unwrap()
+            .trim()
+            .to_owned();
+        let energy_uj_path = entry.path().join("energy_uj");
+        Some((component, energy_uj_path))
+    } else {
+        None
+    }
+}
 impl Debug for dyn Collector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Collector debug")
