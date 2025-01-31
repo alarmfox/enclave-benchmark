@@ -10,6 +10,7 @@ use std::{
 };
 
 use crossbeam::channel::{unbounded, TryRecvError};
+use duration_str::HumanFormat;
 use tracing::{error, trace, warn};
 
 pub trait Collector {
@@ -149,6 +150,7 @@ impl DefaultLinuxCollector {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip(self))]
     fn monitor_child_process(&self, child: Child, experiment_directory: PathBuf) {
         let (tx, rx) = unbounded::<(u64, u64)>();
         let rx1 = rx.clone();
@@ -240,6 +242,7 @@ impl DefaultLinuxCollector {
 }
 
 impl Collector for DefaultLinuxCollector {
+    #[tracing::instrument(level = "debug", skip(self))]
     fn attach(
         &self,
         program: PathBuf,
@@ -309,6 +312,23 @@ impl Collector for DefaultLinuxCollector {
 impl Debug for dyn Collector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Collector debug")
+    }
+}
+
+impl Debug for DefaultLinuxCollector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Default linux debug:\n perf_events={}\n rapl_paths={}\n sample_size={}\n energy_sample_interval={}",
+            self.perf_events.join(","),
+            self.rapl_paths
+                .iter()
+                .map(|(_, p)| p.to_str().unwrap().to_string())
+                .collect::<Vec<String>>()
+                .join(","),
+            self.sample_size,
+            self.energy_sample_interval.human_format()
+        )
     }
 }
 
