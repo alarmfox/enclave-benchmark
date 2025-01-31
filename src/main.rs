@@ -1,38 +1,11 @@
-use capstone::{
-    arch::{self, BuildsCapstone, BuildsCapstoneSyntax},
-    Capstone,
-};
-use collector::{Collector, DefaultLinuxCollector};
+use collector::DefaultLinuxCollector;
 use common::{GlobalParams, Task};
-use crossbeam::channel::{unbounded, TryRecvError};
-use handlebars::Handlebars;
-use libc::{ptrace, waitpid, PTRACE_SYSCALL, WIFEXITED, WIFSTOPPED};
 use profiler::Profiler;
-use pyo3::{
-    types::{IntoPyDict, PyAnyMethods, PyModule},
-    Bound, PyAny, PyResult, Python,
-};
-use rsa::{
-    pkcs1::{self, EncodeRsaPrivateKey},
-    BigUint, RsaPrivateKey,
-};
 use serde::Deserialize;
-use std::{
-    collections::{HashMap, HashSet},
-    ffi::c_long,
-    fmt::{Debug, Display},
-    fs::{self, create_dir, create_dir_all, DirEntry, File},
-    io::Read,
-    path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
-    ptr,
-    sync::{Arc, Mutex},
-    thread,
-    time::{Duration, SystemTime},
-};
+use std::{fmt::Debug, fs::File, io::Read, path::PathBuf};
 
 use clap::{arg, command, Parser};
-use tracing::{debug, error, trace, warn, Level};
+use tracing::Level;
 
 mod collector;
 mod common;

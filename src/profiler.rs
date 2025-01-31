@@ -334,6 +334,9 @@ sgx.allowed_files = [
 
 #[cfg(test)]
 mod test {
+    use std::path::Path;
+
+    use collector::Collector;
     use common::StorageType;
     use profiler::GramineMetadata;
     use tempfile::TempDir;
