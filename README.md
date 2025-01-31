@@ -90,21 +90,18 @@ tree -L 6 /tmp/test
     |   |   |   |   |-- package-0-uncore.csv
     |   |   |   |   |-- package-0.csv
     |   |   |   |   |-- perf.csv
-    |   |   |   |   `-- ptrace.log
     |   |   |   |-- 2
     |   |   |   |   |-- package-0-core.csv
     |   |   |   |   |-- package-0-dram.csv
     |   |   |   |   |-- package-0-uncore.csv
     |   |   |   |   |-- package-0.csv
     |   |   |   |   |-- perf.csv
-    |   |   |   |   `-- ptrace.log
     |   |   |   `-- 3
     |   |   |       |-- package-0-core.csv
     |   |   |       |-- package-0-dram.csv
     |   |   |       |-- package-0-uncore.csv
     |   |   |       |-- package-0.csv
     |   |   |       |-- perf.csv
-    |   |   |       `-- ptrace.log
     |   |   |-- sleep.manifest.sgx
     |   |   |-- sleep.sig
     |   |   |-- trusted
@@ -118,21 +115,18 @@ tree -L 6 /tmp/test
     |       |   |   |-- package-0-uncore.csv
     |       |   |   |-- package-0.csv
     |       |   |   |-- perf.csv
-    |       |   |   `-- ptrace.log
     |       |   |-- 2
     |       |   |   |-- package-0-core.csv
     |       |   |   |-- package-0-dram.csv
     |       |   |   |-- package-0-uncore.csv
     |       |   |   |-- package-0.csv
     |       |   |   |-- perf.csv
-    |       |   |   `-- ptrace.log
     |       |   `-- 3
     |       |       |-- package-0-core.csv
     |       |       |-- package-0-dram.csv
     |       |       |-- package-0-uncore.csv
     |       |       |-- package-0.csv
     |       |       |-- perf.csv
-    |       |       `-- ptrace.log
     |       |-- sleep.manifest.sgx
     |       |-- sleep.sig
     |       |-- trusted
@@ -145,21 +139,18 @@ tree -L 6 /tmp/test
         |   |   |-- package-0-uncore.csv
         |   |   |-- package-0.csv
         |   |   |-- perf.csv
-        |   |   `-- ptrace.log
         |   |-- 2
         |   |   |-- package-0-core.csv
         |   |   |-- package-0-dram.csv
         |   |   |-- package-0-uncore.csv
         |   |   |-- package-0.csv
         |   |   |-- perf.csv
-        |   |   `-- ptrace.log
         |   |-- 3
         |   |   |-- package-0-core.csv
         |   |   |-- package-0-dram.csv
         |   |   |-- package-0-uncore.csv
         |   |   |-- package-0.csv
         |   |   |-- perf.csv
-        |   |   `-- ptrace.log
         |   `-- storage
         `-- sleep-4
             |-- 1
@@ -168,24 +159,21 @@ tree -L 6 /tmp/test
             |   |-- package-0-uncore.csv
             |   |-- package-0.csv
             |   |-- perf.csv
-            |   `-- ptrace.log
             |-- 2
             |   |-- package-0-core.csv
             |   |-- package-0-dram.csv
             |   |-- package-0-uncore.csv
             |   |-- package-0.csv
             |   |-- perf.csv
-            |   `-- ptrace.log
             |-- 3
             |   |-- package-0-core.csv
             |   |-- package-0-dram.csv
             |   |-- package-0-uncore.csv
             |   |-- package-0.csv
             |   |-- perf.csv
-            |   `-- ptrace.log
             `-- storage
-
 ```
+
 ## Python bindings
 This projects uses [Gramine Python API](https://gramine.readthedocs.io/en/stable/python/api.html) 
 with [PyO3](https://github.com/PyO3/pyo3) and needs `python3-dev[evel]` package. You will need 
