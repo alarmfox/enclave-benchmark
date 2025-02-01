@@ -20,6 +20,13 @@ jobs:
     steps:
     - name: Check out code
       uses: actions/checkout@v4
+    
+    - name: Setup host dependency
+      run: |
+        sudo apt-get update && sudo apt-get install -y \
+          libbpf1 \
+          clang \
+          llvm-dev
 
     - name: Check
       run: cargo check --verbose
@@ -48,12 +55,6 @@ jobs:
     - name: Check out code
       uses: actions/checkout@v4
 
-    - name: Setup host dependency
-      run: |
-        sudo apt-get update && sudo apt-get install -y \
-          libbpf1 \
-          clang \
-          llvm-dev
 
     - uses: actions/cache@v4
       id: cache-docker-image
