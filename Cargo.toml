@@ -3,13 +3,18 @@ name = "performance-analysis"
 version = "0.1.0"
 edition = "2021"
 
+[build-dependencies]
+libbpf-cargo = "=0.25.0-beta.1"
+vmlinux = { version = "0.0", git = "https://github.com/libbpf/vmlinux.h.git", rev = "83a228cf37fc65f2d14e4896a04922b5ee531a94" }
+
 [dependencies]
 clap = { version = "4.5.16", features = ["derive"] }
 crossbeam = "0.8.4"
 duration-str = "0.12.0"
 serde = { version = "1.0.217", features = ["derive"] }
 handlebars = "6.3.0"
-libc = "0.2.169"
+libbpf-rs = "=0.25.0-beta.1"
+plain = "0.2"
 rand = "0.8.5"
 rsa = "0.9.7"
 tempfile = "3.15.0"

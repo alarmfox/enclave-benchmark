@@ -37,8 +37,7 @@ struct GramineMetadata {
     untrusted_path: PathBuf,
 }
 
-impl Profiler {
-    const MANIFEST: &str = r#"
+const MANIFEST: &str = r#"
 libos.entrypoint = "{{ executable }}"
 loader.log_level = "none"
 
@@ -76,6 +75,7 @@ sgx.allowed_files = [
   "file::{{ untrusted_path }}/",
 ]
 "#;
+impl Profiler {
     pub fn new(
         num_threads: Vec<usize>,
         epc_size: Vec<String>,
@@ -160,7 +160,7 @@ sgx.allowed_files = [
                         .extract()?
                 }
                 None => manifest
-                    .call_method1("from_template", (Self::MANIFEST.trim(), args))?
+                    .call_method1("from_template", (MANIFEST.trim(), args))?
                     .extract()?,
             };
 

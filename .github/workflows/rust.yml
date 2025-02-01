@@ -59,14 +59,19 @@ jobs:
     - name: Load Docker image from cache
       if: steps.cache-docker-image.outputs.cache-hit == 'true'
       run: |
-        docker load -i /tmp/.docker-cache/gramine-sdk.tar
+        docker load -i /tmp/.docker-cache/gramine-profile.tar
 
     - name: Build Docker image
       if: steps.cache-docker-image.outputs.cache-hit != 'true'
       run: |
-        docker build -t gramine-sdk .
+        docker build -t gramine-profile .
         mkdir -p /tmp/.docker-cache
-        docker save gramine-sdk -o /tmp/.docker-cache/gramine-sdk.tar
+        docker save gramine-profile -o /tmp/.docker-cache/gramine-profile.tar
 
     - name: Run tests
-      run: docker run --privileged -v $(pwd):/workspace/benchmark -w /workspace/benchmark gramine-sdk cargo test --verbose
+      run: |
+        docker run --privileged \
+        -v $(pwd):/workspace/benchmark \
+        -w /workspace/benchmark \
+        gramine-profile \
+        /bin/sh -c "mount -o debugfs none /sys/kernel/debug/; cargo test --verbose"

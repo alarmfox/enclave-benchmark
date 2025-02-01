@@ -9,9 +9,9 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
   flex \
   gnupg2 \
   cmake \
+  clang \
   psmisc \
   make \
-  strace \
   build-essential \
   binutils-dev \
   autoconf \ 
@@ -56,7 +56,9 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
   libbabeltrace-dev \
   libiberty-dev \
   libunwind-dev \
-  libzstd-dev
+  libzstd-dev \
+  libbpf1 \
+  llvm-dev
 
 # build perf against current kernel version 
 # depending on the underling distro 
@@ -65,7 +67,9 @@ RUN VERSION=$(uname -r | awk -F '_' '{print $1}' | awk -F '-' '{print $1}' | awk
   MAJOR=$(uname -r | awk -F . '{print $1}') && \
   curl -O https://cdn.kernel.org/pub/linux/kernel/v$MAJOR.x/linux-$VERSION.tar.xz && \
   tar -xvf linux-$VERSION.tar.xz && \
-  make -C linux-$VERSION/tools/perf install DESTDIR=/usr/local
+  make -C linux-$VERSION/tools/perf install DESTDIR=/usr/local && \
+  make -C linux-$VERSION/tools/bpf bpftool_install
+
 
 # configure intel sgx sdk
 RUN curl -fsSLo /usr/share/keyrings/intel-sgx-deb.asc https://download.01.org/intel-sgx/sgx_repo/ubuntu/intel-sgx-deb.key && \

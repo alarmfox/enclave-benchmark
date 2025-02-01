@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
     fs::{self, create_dir_all, DirEntry, File},
+    mem::MaybeUninit,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
@@ -11,7 +12,20 @@ use std::{
 
 use crossbeam::channel::{unbounded, TryRecvError};
 use duration_str::HumanFormat;
+use libbpf_rs::{
+    skel::{OpenSkel, Skel, SkelBuilder},
+    PerfBufferBuilder, RingBufferBuilder,
+};
+use plain::Plain;
+use tracer::TracerSkelBuilder;
 use tracing::{error, trace, warn};
+
+mod tracer {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/bpf/tracer.skel.rs"
+    ));
+}
 
 pub trait Collector {
     #[allow(clippy::too_many_arguments)]
@@ -106,7 +120,7 @@ impl DefaultLinuxCollector {
                         };
                     }
                 } else {
-                    warn!("apparently system does not support RAPL interface; skipping");
+                    warn!("system does not support RAPL interface; skipping");
                 }
                 rapl_paths
             },
@@ -155,6 +169,7 @@ impl DefaultLinuxCollector {
     fn monitor_child_process(&self, child: Child, experiment_directory: PathBuf) {
         let (tx, rx) = unbounded::<(u64, u64)>();
         let rx1 = rx.clone();
+        let pid = child.id();
         let child = Arc::new(Mutex::new(child));
 
         let rapl_paths = self.rapl_paths.clone();
@@ -162,7 +177,7 @@ impl DefaultLinuxCollector {
         let energy_handle = thread::spawn(move || {
             let mut measures: HashMap<String, Vec<String>> = HashMap::new();
             loop {
-                if let Err(e) = rx1.try_recv() {
+                if let Err(e) = rx.try_recv() {
                     if e == TryRecvError::Disconnected {
                         trace!("got termination signal {}", e);
                         break;
@@ -195,6 +210,49 @@ impl DefaultLinuxCollector {
             }
         });
 
+        let tracing_handle = thread::spawn(move || {
+            let mut skel_builder = TracerSkelBuilder::default();
+            skel_builder.obj_builder.debug(true);
+            let mut open_object = MaybeUninit::uninit();
+            let open_skel = skel_builder
+                .open(&mut open_object)
+                .expect("cannot open ebpf program");
+            open_skel.maps.rodata_data.targ_pid = pid as i32;
+            let mut skel = open_skel.load().expect("cannot load ebpf program");
+            skel.attach().expect("cannot attach program");
+
+            let mut ring_buffer_builder = RingBufferBuilder::new();
+            ring_buffer_builder
+                .add(&skel.maps.ringbuf, move |data| -> i32 {
+                    trace!("got into callback");
+                    let mut event = tracer::types::exec_event::default();
+                    plain::copy_from_bytes(&mut event, data).expect("Data buffer was too short");
+
+                    let a = event.filename.map(|c| c as u8);
+                    let filename = std::str::from_utf8(&a).unwrap();
+
+                    // Process the event (e.g., log or write to CSV).
+                    trace!("event: syscall at {} ns ({})", event.timestamp, filename,);
+                    0
+                })
+                .expect("cannot add map to ringbuf");
+            let ring_buffer = &ring_buffer_builder.build().expect("cannot build ringbuf");
+
+            loop {
+                if let Err(e) = rx1.try_recv() {
+                    if e == TryRecvError::Disconnected {
+                        trace!("ebpf: got termination signal {}", e);
+                        break;
+                    }
+                }
+                if let Err(e) = ring_buffer.consume() {
+                    warn!("ebpf ring_buffer.consume {e}");
+                }
+
+                thread::sleep(Duration::from_millis(250));
+            }
+        });
+
         let child = child.clone();
         let wait_child_handle = thread::spawn(move || {
             let status = {
@@ -216,7 +274,7 @@ impl DefaultLinuxCollector {
             drop(tx);
         });
 
-        for handle in [energy_handle, wait_child_handle] {
+        for handle in [energy_handle, wait_child_handle, tracing_handle] {
             handle.join().unwrap();
         }
     }
@@ -240,7 +298,6 @@ impl Collector for DefaultLinuxCollector {
 
             // i have no access to sgx machine yet
             if program.to_str().unwrap() == "gramine-sgx" {
-                File::create(experiment_directory.join("ptrace.log"))?;
                 File::create(experiment_directory.join("perf.csv"))?;
                 for (name, _) in &self.rapl_paths {
                     File::create(experiment_directory.join(format!("{}.csv", name)))?;
@@ -308,6 +365,9 @@ fn extract_rapl_path(entry: &DirEntry) -> Option<(String, PathBuf)> {
         None
     }
 }
+
+unsafe impl Plain for tracer::types::exec_event {}
+
 impl Debug for dyn Collector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Collector debug")

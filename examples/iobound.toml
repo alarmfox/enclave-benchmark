@@ -2,10 +2,10 @@
 sample_size = 1
 epc_size = ["64M"]
 output_directory = "/tmp/test"
-num_threads = [2]
+num_threads = [1]
 extra_perf_events = ["cpu-clock"]
 
 [[tasks]]
-executable = "/usr/bin/sleep"
-args = ["4"]
+executable = "/bin/dd"
+args = ["if=/dev/zero", "of=/dev/null", "count=10000000"]
 
