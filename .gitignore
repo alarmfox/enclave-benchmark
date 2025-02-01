@@ -1,4 +1,5 @@
 /target
+/**/.skel.rs
 *.o 
 /**/app
 /**/writer
