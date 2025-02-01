@@ -13,7 +13,8 @@ use std::{
 use crossbeam::channel::{unbounded, TryRecvError};
 use duration_str::HumanFormat;
 use libbpf_rs::{
-    skel::{OpenSkel, Skel, SkelBuilder}, RingBufferBuilder,
+    skel::{OpenSkel, Skel, SkelBuilder},
+    RingBufferBuilder,
 };
 use plain::Plain;
 use tracer::TracerSkelBuilder;
