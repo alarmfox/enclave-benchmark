@@ -68,8 +68,8 @@ RUN VERSION=$(uname -r | awk -F '_' '{print $1}' | awk -F '-' '{print $1}' | awk
   curl -O https://cdn.kernel.org/pub/linux/kernel/v$MAJOR.x/linux-$VERSION.tar.xz && \
   tar -xvf linux-$VERSION.tar.xz && \
   make -C linux-$VERSION/tools/perf install DESTDIR=/usr/local && \
-  make -C linux-$VERSION/tools/bpf bpftool_install
-
+  make -C linux-$VERSION/tools/bpf bpftool_install && \
+  rm -rf linux-$VERSION linux-$VERSION.tar.xz
 
 # configure intel sgx sdk
 RUN curl -fsSLo /usr/share/keyrings/intel-sgx-deb.asc https://download.01.org/intel-sgx/sgx_repo/ubuntu/intel-sgx-deb.key && \
