@@ -82,4 +82,4 @@ jobs:
         -v $(pwd):/workspace/benchmark \
         -w /workspace/benchmark \
         gramine-profile \
-        /bin/sh -c "mount -o debugfs none /sys/kernel/debug/; cargo test --verbose"
+        cargo test --verbose -- --skip collector

@@ -231,7 +231,7 @@ impl DefaultLinuxCollector {
                     let a = event.filename.map(|c| c as u8);
                     let filename = std::str::from_utf8(&a).unwrap();
 
-                    // Process the event (e.g., log or write to CSV).
+                    // Process the event
                     trace!("event: syscall at {} ns ({})", event.timestamp, filename,);
                     0
                 })
