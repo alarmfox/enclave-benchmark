@@ -6,46 +6,47 @@
 
 const volatile pid_t targ_pid = 0;
 
-struct exec_event _event = {0};
+struct io_event _event = {0};
 
-// This EBPF map is sent to userspace
+// This eBPF map is sent to userspace
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 256*1024);
+    __uint(max_entries, 1 << 24);
 } ringbuf SEC(".maps");
 
-struct execve_params {
-  __u64 unused;
-  __u64 unused2;
-  char* filename;
-};
+static __always_inline int submit_io_event(struct trace_event_raw_sys_enter *ctx) {
+    struct io_event *e;
+    u32 pid;
 
-// Attach to the tracepoint "syscalls:sys_enter".
-// This tracepoint is invoked on every system call entry.
-SEC("tp/syscalls/sys_enter_execve")
-int trace_exec(struct execve_params *ctx) {
-
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    pid = bpf_get_current_pid_tgid() >> 32;
 
     // not the target pid, don't do anything
     if (pid != targ_pid) {
       return 0;
     }
 
-    struct exec_event* event = bpf_ringbuf_reserve(&ringbuf, sizeof(struct exec_event), 0);
+    e = bpf_ringbuf_reserve(&ringbuf, sizeof(struct io_event), 0);
+    if (!e)
+        return 0;
 
-    if (!event) {
-      bpf_printk("bpf_ringbuf_reserve failed\n");
-      return 1;
-    }
-    
-    event->timestamp = bpf_ktime_get_ns();
-    
-    bpf_probe_read_user_str(event->filename, sizeof(event->filename), ctx->filename);
-    // emit the value to user space
-    bpf_ringbuf_submit(event, 0);
-    
+    e->timestamp = bpf_ktime_get_ns();
+    e->syscall = ctx->id;
+
+    // Submit the event to the ring buffer.
+    bpf_ringbuf_submit(e, 0);
     return 0;
+}
+
+// Attach to the tracepoint for read syscalls.
+SEC("tracepoint/syscalls/sys_enter_read")
+int trace_read(struct trace_event_raw_sys_enter *ctx) {
+    return submit_io_event(ctx);
+}
+
+// Attach to the tracepoint for write syscalls.
+SEC("tracepoint/syscalls/sys_enter_write")
+int trace_write(struct trace_event_raw_sys_enter *ctx) {
+    return submit_io_event(ctx);
 }
 
 char LICENSE[] SEC("license") = "GPL";

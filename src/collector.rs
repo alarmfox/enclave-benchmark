@@ -27,6 +27,8 @@ mod tracer {
     ));
 }
 
+unsafe impl Plain for tracer::types::io_event {}
+
 pub trait Collector {
     #[allow(clippy::too_many_arguments)]
     fn attach(
@@ -211,8 +213,8 @@ impl DefaultLinuxCollector {
         });
 
         let tracing_handle = thread::spawn(move || {
-            let mut skel_builder = TracerSkelBuilder::default();
-            skel_builder.obj_builder.debug(true);
+            let skel_builder = TracerSkelBuilder::default();
+            //skel_builder.obj_builder.debug(true);
             let mut open_object = MaybeUninit::uninit();
             let open_skel = skel_builder
                 .open(&mut open_object)
@@ -224,15 +226,15 @@ impl DefaultLinuxCollector {
             let mut ring_buffer_builder = RingBufferBuilder::new();
             ring_buffer_builder
                 .add(&skel.maps.ringbuf, move |data| -> i32 {
-                    trace!("got into callback");
-                    let mut event = tracer::types::exec_event::default();
+                    let mut event = tracer::types::io_event::default();
                     plain::copy_from_bytes(&mut event, data).expect("Data buffer was too short");
 
-                    let a = event.filename.map(|c| c as u8);
-                    let filename = std::str::from_utf8(&a).unwrap();
-
                     // Process the event
-                    trace!("event: syscall at {} ns ({})", event.timestamp, filename,);
+                    trace!(
+                        "event: syscall at {} ns ({})",
+                        event.syscall,
+                        event.timestamp
+                    );
                     0
                 })
                 .expect("cannot add map to ringbuf");
@@ -249,7 +251,7 @@ impl DefaultLinuxCollector {
                     warn!("ebpf ring_buffer.consume {e}");
                 }
 
-                thread::sleep(Duration::from_millis(250));
+                thread::sleep(Duration::from_secs(1));
             }
         });
 
@@ -365,8 +367,6 @@ fn extract_rapl_path(entry: &DirEntry) -> Option<(String, PathBuf)> {
         None
     }
 }
-
-unsafe impl Plain for tracer::types::exec_event {}
 
 impl Debug for dyn Collector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

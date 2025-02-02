@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [build-dependencies]
-libbpf-cargo = "=0.25.0-beta.1"
+libbpf-cargo = "0.24.8"
 vmlinux = { version = "0.0", git = "https://github.com/libbpf/vmlinux.h.git", rev = "83a228cf37fc65f2d14e4896a04922b5ee531a94" }
 
 [dependencies]
@@ -13,18 +13,15 @@ crossbeam = "0.8.4"
 duration-str = "0.12.0"
 serde = { version = "1.0.217", features = ["derive"] }
 handlebars = "6.3.0"
-libbpf-rs = "=0.25.0-beta.1"
+libbpf-rs = "0.24.8"
 plain = "0.2"
+pyo3 = { version = "0.23.3", features = ["auto-initialize"]}
 rand = "0.8.5"
 rsa = "0.9.7"
 tempfile = "3.15.0"
 toml = "0.8.19"
 tracing = "0.1"
 tracing-subscriber = "0.3"
-
-[dependencies.pyo3]
-version = "0.23.3"
-features = ["auto-initialize"]
 
 [profile.dev.package.num-bigint-dig]
 opt-level = 3

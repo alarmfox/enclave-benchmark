@@ -26,6 +26,7 @@ pub struct Profiler {
     output_directory: PathBuf,
     num_threads: Vec<usize>,
     epc_size: Vec<String>,
+    libc: String,
     collector: Box<dyn Collector + 'static>,
 }
 #[derive(Debug, Clone)]
@@ -67,7 +68,7 @@ sgx.edmm_enable = false
 
 sgx.trusted_files = [
   "file:{{ executable }}",
-  "file:{{ gramine.runtimedir() }}/",
+  "file:{{ gramine.runtimedir( libc ) }}/",
   "file:{{ executable_path }}/",
 ]
 
@@ -99,6 +100,13 @@ impl Profiler {
             num_threads,
             epc_size,
             collector,
+            libc: {
+                if cfg!(target_env = "musl") {
+                    "musl".to_string()
+                } else {
+                    "glibc".to_string()
+                }
+            },
         })
     }
 
@@ -147,6 +155,7 @@ impl Profiler {
                 ("trusted_path", trusted_path.to_str().unwrap()),
                 ("tmpfs_path", tmpfs_path.to_str().unwrap()),
                 ("executable_path", executable_path.to_str().unwrap()),
+                ("libc", &self.libc),
             ]
             .into_py_dict(py)?;
 
