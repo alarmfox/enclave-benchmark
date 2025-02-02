@@ -82,4 +82,4 @@ jobs:
         -v $(pwd):/workspace/benchmark \
         -w /workspace/benchmark \
         gramine-profile \
-        cargo test --verbose -- --skip collector
+        sh -c "rm .cargo -rf; cargo test --verbose -- --skip collector"
