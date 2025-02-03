@@ -15,7 +15,7 @@ use crossbeam::channel::{unbounded, TryRecvError};
 use duration_str::HumanFormat;
 use libbpf_rs::{
     skel::{OpenSkel, Skel, SkelBuilder},
-    Map, MapCore, MapFlags, MapImpl,
+    Map, MapCore, MapFlags,
 };
 use plain::{Error, Plain};
 use tracer::{types::io_counter, TracerSkelBuilder};
@@ -188,7 +188,7 @@ impl DefaultCollector {
 
         let energy_result_directory = experiment_directory.clone();
         let rapl_paths = self.rapl_paths.clone();
-        let energy_interval = self.energy_sample_interval.clone();
+        let energy_interval = self.energy_sample_interval;
         let energy_handle = thread::spawn(move || {
             let mut measures: HashMap<String, Vec<String>> = HashMap::new();
             loop {
@@ -249,7 +249,7 @@ impl DefaultCollector {
             let io_counters = get_map_result::<io_counter>(
                 &prog.maps.agg_map,
                 Some(&|key, value| {
-                    let key = u32::from_bytes(&key).expect("cannot convert map key");
+                    let key = u32::from_bytes(key).expect("cannot convert map key");
                     let average = if value.count > 0 {
                         value.total_duration / value.count
                     } else {
@@ -268,7 +268,7 @@ impl DefaultCollector {
             let disk_counters = get_map_result::<tracer::types::disk_counter>(
                 &prog.maps.counters,
                 Some(&|key, value| {
-                    let key = u32::from_bytes(&key).expect("cannot convert map key");
+                    let key = u32::from_bytes(key).expect("cannot convert map key");
                     let total = value.sequential + value.random;
 
                     let mut partition_name = String::from("unknown");
@@ -449,6 +449,50 @@ impl Debug for DefaultCollector {
     }
 }
 
+impl From<&str> for Partition {
+    fn from(value: &str) -> Self {
+        let parts = value.split_whitespace().collect::<Vec<&str>>();
+        assert_eq!(parts.len(), 4);
+
+        let major = parts[0].parse::<u32>().unwrap();
+        let minor = parts[1].parse::<u32>().unwrap();
+
+        Partition {
+            name: parts[3].parse().unwrap(),
+            // https://man7.org/linux/man-pages/man3/makedev.3.html
+            dev: major << 20 | minor,
+        }
+    }
+}
+
+impl Partition {
+    // Loads current partitions from /proc/partitions
+    // https://github.com/eunomia-bpf/bpf-developer-tutorial/blob/main/src/17-biopattern/trace_helpers.c
+    // the file has a structure like this
+    //
+    // major minor  #blocks  name
+    //
+    //   259     0  250059096 nvme0n1
+    //   259     1     524288 nvme0n1p1
+    //   259     2   25165824 nvme0n1p2
+    //   259     3  224367616 nvme0n1p3
+    //     8     0  976762584 sda
+    //     8     1  976760832 sda1
+    pub fn load() -> Vec<Self> {
+        let f = File::open("/proc/partitions").expect("cannot open /proc/partitions");
+        let reader = BufReader::new(f);
+        let mut partitions = Vec::new();
+        for line in reader.lines().flatten() {
+            // skip first 2 lines
+            if line.is_empty() || line.starts_with("major") {
+                continue;
+            }
+            partitions.push(Partition::from(line.trim()));
+        }
+        partitions
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::{path::PathBuf, time::Duration};
@@ -495,51 +539,5 @@ mod test {
 
         assert_eq!(partition.name, "nvme0n1");
         assert_eq!(partition.dev, 271581184);
-    }
-}
-
-impl From<&str> for Partition {
-    fn from(value: &str) -> Self {
-        let parts = value.split_whitespace().collect::<Vec<&str>>();
-        assert_eq!(parts.len(), 4);
-
-        let major = parts[0].parse::<u32>().unwrap();
-        let minor = parts[1].parse::<u32>().unwrap();
-
-        Partition {
-            name: parts[3].parse().unwrap(),
-            // https://man7.org/linux/man-pages/man3/makedev.3.html
-            dev: major << 20 | minor,
-        }
-    }
-}
-
-impl Partition {
-    // Loads current partitions from /proc/partitions
-    // https://github.com/eunomia-bpf/bpf-developer-tutorial/blob/main/src/17-biopattern/trace_helpers.c
-    // the file has a structure like this
-    //
-    // major minor  #blocks  name
-    //
-    //   259     0  250059096 nvme0n1
-    //   259     1     524288 nvme0n1p1
-    //   259     2   25165824 nvme0n1p2
-    //   259     3  224367616 nvme0n1p3
-    //     8     0  976762584 sda
-    //     8     1  976760832 sda1
-    pub fn load() -> Vec<Self> {
-        let f = File::open("/proc/partitions").expect("cannot open /proc/partitions");
-        let reader = BufReader::new(f);
-        let mut partitions = Vec::new();
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                // skip first 2 lines
-                if line.is_empty() || line.starts_with("major") {
-                    continue;
-                }
-                partitions.push(Partition::from(line.trim()));
-            }
-        }
-        partitions
     }
 }
