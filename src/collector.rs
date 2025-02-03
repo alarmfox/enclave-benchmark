@@ -483,11 +483,13 @@ impl Partition {
         let reader = BufReader::new(f);
         let mut partitions = Vec::new();
         for line in reader.lines().flatten() {
-            // skip first 2 lines
-            if line.is_empty() || line.starts_with("major") {
-                continue;
+            if let Ok(line) = line {
+                // skip first 2 lines
+                if line.is_empty() || line.starts_with("major") {
+                    continue;
+                }
+                partitions.push(Partition::from(line.trim()));
             }
-            partitions.push(Partition::from(line.trim()));
         }
         partitions
     }
