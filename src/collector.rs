@@ -246,7 +246,7 @@ impl DefaultCollector {
             // wait for program to stop
             rx1.recv().unwrap_err();
 
-            let io_counters = get_map_result::<io_counter>(
+            let _io_counters = get_map_result::<io_counter>(
                 &prog.maps.agg_map,
                 Some(&|key, value| {
                     let key = u32::from_bytes(key).expect("cannot convert map key");
@@ -265,7 +265,7 @@ impl DefaultCollector {
                 }),
             )
             .expect("cannot get read/write counters");
-            let disk_counters = get_map_result::<tracer::types::disk_counter>(
+            let _disk_counters = get_map_result::<tracer::types::disk_counter>(
                 &prog.maps.counters,
                 Some(&|key, value| {
                     let key = u32::from_bytes(key).expect("cannot convert map key");
@@ -482,6 +482,7 @@ impl Partition {
         let f = File::open("/proc/partitions").expect("cannot open /proc/partitions");
         let reader = BufReader::new(f);
         let mut partitions = Vec::new();
+        #[allow(clippy::manual_flatten)]
         for line in reader.lines() {
             if let Ok(line) = line {
                 // skip first 2 lines
