@@ -1,4 +1,4 @@
-use collector::DefaultLinuxCollector;
+use collector::DefaultCollector;
 use common::{GlobalParams, Task};
 use profiler::Profiler;
 use serde::Deserialize;
@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.globals.num_threads,
         config.globals.epc_size,
         config.globals.output_directory,
-        Box::new(DefaultLinuxCollector::new(
+        Box::new(DefaultCollector::new(
             config.globals.sample_size,
             config.globals.energy_sample_interval,
             config.globals.extra_perf_events,

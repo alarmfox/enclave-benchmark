@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
     fs::{self, create_dir_all, DirEntry, File},
+    io::{BufRead, BufReader},
     mem::MaybeUninit,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
@@ -14,10 +15,10 @@ use crossbeam::channel::{unbounded, TryRecvError};
 use duration_str::HumanFormat;
 use libbpf_rs::{
     skel::{OpenSkel, Skel, SkelBuilder},
-    RingBufferBuilder,
+    Map, MapCore, MapFlags, MapImpl,
 };
-use plain::Plain;
-use tracer::TracerSkelBuilder;
+use plain::{Error, Plain};
+use tracer::{types::io_counter, TracerSkelBuilder};
 use tracing::{error, trace, warn};
 
 mod tracer {
@@ -27,7 +28,8 @@ mod tracer {
     ));
 }
 
-unsafe impl Plain for tracer::types::io_event {}
+unsafe impl Plain for tracer::types::io_counter {}
+unsafe impl Plain for tracer::types::disk_counter {}
 
 pub trait Collector {
     #[allow(clippy::too_many_arguments)]
@@ -43,14 +45,23 @@ pub trait Collector {
     ) -> Result<(), Box<dyn std::error::Error>>;
 }
 
-pub struct DefaultLinuxCollector {
+#[cfg(target_os = "linux")]
+#[derive(Clone)]
+struct Partition {
+    name: String,
+    dev: u32,
+}
+
+#[cfg(target_os = "linux")]
+pub struct DefaultCollector {
     sample_size: u32,
     perf_events: Vec<String>,
     rapl_paths: Vec<(String, PathBuf)>,
     energy_sample_interval: Duration,
+    partitions: Vec<Partition>,
 }
 
-impl DefaultLinuxCollector {
+impl DefaultCollector {
     const ENERGY_CSV_HEADER: &str = "timestamp (microseconds),energy (microjoule)";
     const DEFAULT_PERF_EVENTS: [&str; 28] = [
         "user_time",
@@ -89,6 +100,7 @@ impl DefaultLinuxCollector {
     ) -> Self {
         Self {
             sample_size,
+            partitions: Partition::load(),
             energy_sample_interval,
             perf_events: {
                 let mut perf_events: HashSet<String> =
@@ -174,8 +186,9 @@ impl DefaultLinuxCollector {
         let pid = child.id();
         let child = Arc::new(Mutex::new(child));
 
+        let energy_result_directory = experiment_directory.clone();
         let rapl_paths = self.rapl_paths.clone();
-        let interval = self.energy_sample_interval;
+        let energy_interval = self.energy_sample_interval.clone();
         let energy_handle = thread::spawn(move || {
             let mut measures: HashMap<String, Vec<String>> = HashMap::new();
             loop {
@@ -198,20 +211,22 @@ impl DefaultLinuxCollector {
                         .push(format!("{},{}", timestamp, energy_uj));
                 }
 
-                thread::sleep(interval);
+                thread::sleep(energy_interval);
             }
 
             // write measures on file
             for (filename, data) in measures.iter_mut() {
                 data.insert(0, Self::ENERGY_CSV_HEADER.to_owned());
                 fs::write(
-                    experiment_directory.join(format!("{}.csv", filename)),
+                    energy_result_directory.join(format!("{}.csv", filename)),
                     data.join("\n"),
                 )
                 .unwrap();
             }
         });
 
+        let tracing_result_directory = &experiment_directory;
+        let partitions = self.partitions.clone();
         let tracing_handle = thread::spawn(move || {
             let skel_builder = TracerSkelBuilder::default();
             //skel_builder.obj_builder.debug(true);
@@ -220,39 +235,60 @@ impl DefaultLinuxCollector {
                 .open(&mut open_object)
                 .expect("cannot open ebpf program");
             open_skel.maps.rodata_data.targ_pid = pid as i32;
-            let mut skel = open_skel.load().expect("cannot load ebpf program");
-            skel.attach().expect("cannot attach program");
+            open_skel.maps.rodata_data.filter_dev = false;
+            trace!(
+                "attaching ebpf program on target process with pid {}",
+                pid as i32
+            );
+            let mut prog = open_skel.load().expect("cannot load ebpf program");
+            prog.attach().expect("cannot attach program");
 
-            let mut ring_buffer_builder = RingBufferBuilder::new();
-            ring_buffer_builder
-                .add(&skel.maps.ringbuf, move |data| -> i32 {
-                    let mut event = tracer::types::io_event::default();
-                    plain::copy_from_bytes(&mut event, data).expect("Data buffer was too short");
+            // wait for program to stop
+            rx1.recv().unwrap_err();
 
-                    // Process the event
+            let io_counters = get_map_result::<io_counter>(
+                &prog.maps.agg_map,
+                Some(&|key, value| {
+                    let key = u32::from_bytes(&key).expect("cannot convert map key");
+                    let average = if value.count > 0 {
+                        value.total_duration / value.count
+                    } else {
+                        0
+                    };
+
                     trace!(
-                        "event: syscall at {} ns ({})",
-                        event.syscall,
-                        event.timestamp
+                        "got {} {} operations; average duration {}ns",
+                        value.count,
+                        if *key == 0 { "write" } else { "read" },
+                        average
                     );
-                    0
-                })
-                .expect("cannot add map to ringbuf");
-            let ring_buffer = &ring_buffer_builder.build().expect("cannot build ringbuf");
+                }),
+            )
+            .expect("cannot get read/write counters");
+            let disk_counters = get_map_result::<tracer::types::disk_counter>(
+                &prog.maps.counters,
+                Some(&|key, value| {
+                    let key = u32::from_bytes(&key).expect("cannot convert map key");
+                    let total = value.sequential + value.random;
 
-            loop {
-                if let Err(e) = rx1.try_recv() {
-                    if e == TryRecvError::Disconnected {
-                        trace!("ebpf: got termination signal {}", e);
-                        break;
+                    let mut partition_name = String::from("unknown");
+                    for partition in &partitions {
+                        if partition.dev == *key {
+                            partition_name = partition.name.clone();
+                        }
                     }
-                }
-                if let Err(e) = ring_buffer.consume() {
-                    warn!("ebpf ring_buffer.consume {e}");
-                }
 
-                thread::sleep(Duration::from_secs(1));
-            }
+                    trace!(
+                        "dev={} random={}% seq={}% total={} bytes={}",
+                        partition_name,
+                        value.random * 100 / total,
+                        value.sequential * 100 / total,
+                        total,
+                        value.bytes / 1024
+                    );
+                }),
+            )
+            .expect("cannot get read/write counters");
         });
 
         let child = child.clone();
@@ -282,7 +318,7 @@ impl DefaultLinuxCollector {
     }
 }
 
-impl Collector for DefaultLinuxCollector {
+impl Collector for DefaultCollector {
     #[tracing::instrument(level = "debug", skip(self))]
     fn attach(
         &self,
@@ -368,13 +404,35 @@ fn extract_rapl_path(entry: &DirEntry) -> Option<(String, PathBuf)> {
     }
 }
 
+fn get_map_result<T: Plain + Default>(
+    map: &Map,
+    cb: Option<&dyn Fn(&Vec<u8>, &T)>,
+) -> Result<Vec<T>, Error> {
+    let mut result = Vec::new();
+    for key in map.keys() {
+        let value = map
+            .lookup(&key, MapFlags::ANY)
+            .expect("cannot read from aggregated map");
+
+        if let Some(bytes) = value {
+            let mut value = T::default();
+            plain::copy_from_bytes(&mut value, &bytes)?;
+
+            if let Some(cb) = cb {
+                cb(&key, &value);
+            }
+            result.push(value);
+        }
+    }
+    Ok(result)
+}
 impl Debug for dyn Collector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Collector debug")
     }
 }
 
-impl Debug for DefaultLinuxCollector {
+impl Debug for DefaultCollector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -397,13 +455,13 @@ mod test {
 
     use tempfile::TempDir;
 
-    use super::{Collector, DefaultLinuxCollector};
+    use super::{Collector, DefaultCollector, Partition};
 
     #[test]
     fn test_collector() {
         let output_directory = TempDir::new().unwrap();
         let sample_size = 1;
-        let collector = DefaultLinuxCollector::new(sample_size, Duration::from_micros(500), None);
+        let collector = DefaultCollector::new(sample_size, Duration::from_micros(500), None);
         collector
             .attach(
                 PathBuf::from("/bin/sleep"),
@@ -428,5 +486,60 @@ mod test {
                     .is_file())
             }
         }
+    }
+
+    #[test]
+    fn test_partition_from_string() {
+        let raw = r#" 259        0  250059096 nvme0n1"#;
+        let partition = Partition::from(raw);
+
+        assert_eq!(partition.name, "nvme0n1");
+        assert_eq!(partition.dev, 271581184);
+    }
+}
+
+impl From<&str> for Partition {
+    fn from(value: &str) -> Self {
+        let parts = value.split_whitespace().collect::<Vec<&str>>();
+        assert_eq!(parts.len(), 4);
+
+        let major = parts[0].parse::<u32>().unwrap();
+        let minor = parts[1].parse::<u32>().unwrap();
+
+        Partition {
+            name: parts[3].parse().unwrap(),
+            // https://man7.org/linux/man-pages/man3/makedev.3.html
+            dev: major << 20 | minor,
+        }
+    }
+}
+
+impl Partition {
+    // Loads current partitions from /proc/partitions
+    // https://github.com/eunomia-bpf/bpf-developer-tutorial/blob/main/src/17-biopattern/trace_helpers.c
+    // the file has a structure like this
+    //
+    // major minor  #blocks  name
+    //
+    //   259     0  250059096 nvme0n1
+    //   259     1     524288 nvme0n1p1
+    //   259     2   25165824 nvme0n1p2
+    //   259     3  224367616 nvme0n1p3
+    //     8     0  976762584 sda
+    //     8     1  976760832 sda1
+    pub fn load() -> Vec<Self> {
+        let f = File::open("/proc/partitions").expect("cannot open /proc/partitions");
+        let reader = BufReader::new(f);
+        let mut partitions = Vec::new();
+        for line in reader.lines() {
+            if let Ok(line) = line {
+                // skip first 2 lines
+                if line.is_empty() || line.starts_with("major") {
+                    continue;
+                }
+                partitions.push(Partition::from(line.trim()));
+            }
+        }
+        partitions
     }
 }

@@ -1,9 +1,20 @@
-#ifndef TRACER_H
-#define TRACER_H
+#ifndef __TRACER_H
+#define __TRACER_H
 
-struct io_event {
-    u64 timestamp;       // Current timestamp in nanoseconds.
-    int syscall;         // System call number.
+#define SYSCALL_WRITE 0
+#define SYSCALL_READ 1
+#define DISK_NAME_LEN	32
+
+struct io_counter {
+  u64 count;
+  u64 total_duration;
 };
 
-#endif // TRACER_H
+struct disk_counter {
+	__u64 last_sector;
+	__u64 bytes;
+	__u32 sequential;
+	__u32 random;
+};
+
+#endif // __TRACER_H
