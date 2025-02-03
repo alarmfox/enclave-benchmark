@@ -482,7 +482,7 @@ impl Partition {
         let f = File::open("/proc/partitions").expect("cannot open /proc/partitions");
         let reader = BufReader::new(f);
         let mut partitions = Vec::new();
-        for line in reader.lines().flatten() {
+        for line in reader.lines() {
             if let Ok(line) = line {
                 // skip first 2 lines
                 if line.is_empty() || line.starts_with("major") {
