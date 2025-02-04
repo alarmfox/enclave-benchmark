@@ -163,7 +163,7 @@ impl DefaultCollector {
                     .spawn()?;
 
                 // Monitor the child process
-                self.monitor_child_process(child, &experiment_directory);
+                self.monitor_child_process(child, experiment_directory);
             }
             Err(e) => error!("process exited with error {}", e),
         }
@@ -307,6 +307,7 @@ impl DefaultCollector {
     }
 
     #[tracing::instrument(level = "debug", skip(self))]
+    #[allow(clippy::too_many_arguments)]
     pub fn attach(
         self: Arc<Self>,
         program: PathBuf,
@@ -392,6 +393,7 @@ fn extract_rapl_path(entry: &DirEntry) -> Option<(String, PathBuf)> {
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn get_map_result<K: Plain + Clone, T: Plain + Default>(
     map: &Map,
     cb: Option<&dyn Fn(&K, &T)>,
@@ -408,7 +410,7 @@ fn get_map_result<K: Plain + Clone, T: Plain + Default>(
             plain::copy_from_bytes(&mut value, &bytes)?;
 
             if let Some(cb) = cb {
-                cb(&key, &value);
+                cb(key, &value);
             }
             result.push((key.clone(), value));
         }
