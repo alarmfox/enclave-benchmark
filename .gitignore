@@ -5,3 +5,4 @@
 /**/writer
 /**/build
 .venv
+src/bpf/vmlinux.h

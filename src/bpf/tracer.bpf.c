@@ -1,15 +1,13 @@
 /*Part of this program (the one that analyzes io patterns) is heavily taken from*/
 /*https://github.com/eunomia-bpf/bpf-developer-tutorial/tree/main/src/17-biopattern*/
-#include <vmlinux.h>
+#include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
-#include "tracer.h" 
-#include "maps.bpf.h"
 #include "core_fixes.bpf.h"
+#include "maps.bpf.h"
+#include "tracer.h" 
 
 const volatile pid_t targ_pid = 0;
-const volatile bool filter_dev = false; 
-const volatile __u32 targ_dev = 0;
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -120,9 +118,6 @@ int handle__block_rq_complete(void *args) {
         nr_sector = BPF_CORE_READ(ctx, nr_sector);
         dev = BPF_CORE_READ(ctx, dev);
     }
-
-    if (filter_dev && targ_dev != dev)
-        return 0;
 
     counterp = bpf_map_lookup_or_try_init(&counters, &dev, &zero);
     if (!counterp)

@@ -182,14 +182,3 @@ to install it according to your distribution. For example, on Ubuntu:
 ```sh
 # apt-get install python3-dev
 ```
-
-### Perf considerations
-This tool heavily rely on [Perf](https://perfwiki.github.io/main/) which requires `sudo` permission. 
-
-To avoid the hassle of using `sudo`, you can use:
-
-```sh
-# sh -c 'echo 1 > /proc/sys/kernel/perf_event_paranoid'
-```
-
-If using Docker, run the container with `--privileged` flag.

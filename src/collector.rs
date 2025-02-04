@@ -6,19 +6,24 @@ use std::{
     mem::MaybeUninit,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     thread,
     time::{Duration, SystemTime},
 };
 
-use crossbeam::channel::{unbounded, TryRecvError};
 use duration_str::HumanFormat;
 use libbpf_rs::{
     skel::{OpenSkel, Skel, SkelBuilder},
     Map, MapCore, MapFlags,
 };
 use plain::{Error, Plain};
-use tracer::{types::io_counter, TracerSkelBuilder};
+use tracer::{
+    types::{disk_counter, io_counter},
+    TracerSkelBuilder,
+};
 use tracing::{error, trace, warn};
 
 mod tracer {
@@ -30,20 +35,6 @@ mod tracer {
 
 unsafe impl Plain for tracer::types::io_counter {}
 unsafe impl Plain for tracer::types::disk_counter {}
-
-pub trait Collector {
-    #[allow(clippy::too_many_arguments)]
-    fn attach(
-        &self,
-        _program: PathBuf,
-        _args: Vec<String>,
-        _pre_run_executable: Option<PathBuf>,
-        _pre_run_args: Vec<String>,
-        _post_run_executable: Option<PathBuf>,
-        _post_run_args: Vec<String>,
-        _output_directory: &Path,
-    ) -> Result<(), Box<dyn std::error::Error>>;
-}
 
 #[cfg(target_os = "linux")]
 #[derive(Clone)]
@@ -143,7 +134,7 @@ impl DefaultCollector {
 
     #[tracing::instrument(level = "trace", skip(self))]
     fn run_experiment(
-        &self,
+        self: Arc<Self>,
         program: &PathBuf,
         args: &[String],
         experiment_directory: &Path,
@@ -172,70 +163,69 @@ impl DefaultCollector {
                     .spawn()?;
 
                 // Monitor the child process
-                self.monitor_child_process(child, experiment_directory.to_path_buf());
+                self.monitor_child_process(child, &experiment_directory);
             }
-            Err(e) => panic!("process exited with error {}", e),
+            Err(e) => error!("process exited with error {}", e),
         }
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
-    fn monitor_child_process(&self, child: Child, experiment_directory: PathBuf) {
-        let (tx, rx) = unbounded::<(u64, u64)>();
-        let rx1 = rx.clone();
+    fn monitor_energy_consumption(&self, stop: &AtomicBool, out_directory: &Path) {
+        let mut measures: HashMap<String, Vec<String>> = HashMap::new();
+        loop {
+            if stop.load(Ordering::Relaxed) {
+                break;
+            }
+            let timestamp = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            for (name, rapl_path) in &self.rapl_paths {
+                // get measurement
+                let energy_uj = fs::read_to_string(rapl_path).unwrap().trim().to_string();
+                measures
+                    .entry(name.to_owned())
+                    .or_default()
+                    .push(format!("{},{}", timestamp, energy_uj));
+            }
+
+            thread::sleep(self.energy_sample_interval);
+        }
+
+        // write measures on file
+        for (filename, data) in measures.iter_mut() {
+            data.insert(0, Self::ENERGY_CSV_HEADER.to_owned());
+            fs::write(
+                out_directory.join(format!("{}.csv", filename)),
+                data.join("\n"),
+            )
+            .unwrap();
+        }
+    }
+
+    #[tracing::instrument(level = "trace", skip(self, child, experiment_directory))]
+    fn monitor_child_process(self: &Arc<Self>, child: Child, experiment_directory: &Path) {
+        let stop = AtomicBool::new(false);
+        let stop = Arc::new(stop);
         let pid = child.id();
-        let child = Arc::new(Mutex::new(child));
+        let child = Mutex::new(child);
 
-        let energy_result_directory = experiment_directory.clone();
-        let rapl_paths = self.rapl_paths.clone();
-        let energy_interval = self.energy_sample_interval;
+        let energy_result_directory = experiment_directory.to_path_buf().clone();
+        let me = self.clone();
+        let energy_stop = stop.clone();
         let energy_handle = thread::spawn(move || {
-            let mut measures: HashMap<String, Vec<String>> = HashMap::new();
-            loop {
-                if let Err(e) = rx.try_recv() {
-                    if e == TryRecvError::Disconnected {
-                        trace!("got termination signal {}", e);
-                        break;
-                    }
-                }
-                let timestamp = SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos();
-                for (name, rapl_path) in &rapl_paths {
-                    // get measurement
-                    let energy_uj = fs::read_to_string(rapl_path).unwrap().trim().to_string();
-                    measures
-                        .entry(name.to_owned())
-                        .or_default()
-                        .push(format!("{},{}", timestamp, energy_uj));
-                }
-
-                thread::sleep(energy_interval);
-            }
-
-            // write measures on file
-            for (filename, data) in measures.iter_mut() {
-                data.insert(0, Self::ENERGY_CSV_HEADER.to_owned());
-                fs::write(
-                    energy_result_directory.join(format!("{}.csv", filename)),
-                    data.join("\n"),
-                )
-                .unwrap();
-            }
+            me.monitor_energy_consumption(&energy_stop, &energy_result_directory);
         });
 
-        let tracing_result_directory = &experiment_directory;
-        let partitions = self.partitions.clone();
+        let tracing_stop = stop.clone();
+        let me = self.clone();
         let tracing_handle = thread::spawn(move || {
             let skel_builder = TracerSkelBuilder::default();
-            //skel_builder.obj_builder.debug(true);
             let mut open_object = MaybeUninit::uninit();
             let open_skel = skel_builder
                 .open(&mut open_object)
                 .expect("cannot open ebpf program");
             open_skel.maps.rodata_data.targ_pid = pid as i32;
-            open_skel.maps.rodata_data.filter_dev = false;
             trace!(
                 "attaching ebpf program on target process with pid {}",
                 pid as i32
@@ -244,12 +234,17 @@ impl DefaultCollector {
             prog.attach().expect("cannot attach program");
 
             // wait for program to stop
-            rx1.recv().unwrap_err();
+            loop {
+                if tracing_stop.load(Ordering::Relaxed) {
+                    break;
+                }
 
-            let _io_counters = get_map_result::<io_counter>(
+                thread::sleep(Duration::from_secs(1));
+            }
+
+            let _io_counters = get_map_result::<u32, io_counter>(
                 &prog.maps.agg_map,
                 Some(&|key, value| {
-                    let key = u32::from_bytes(key).expect("cannot convert map key");
                     let average = if value.count > 0 {
                         value.total_duration / value.count
                     } else {
@@ -265,14 +260,13 @@ impl DefaultCollector {
                 }),
             )
             .expect("cannot get read/write counters");
-            let _disk_counters = get_map_result::<tracer::types::disk_counter>(
+            let _disk_counters = get_map_result::<u32, disk_counter>(
                 &prog.maps.counters,
                 Some(&|key, value| {
-                    let key = u32::from_bytes(key).expect("cannot convert map key");
                     let total = value.sequential + value.random;
 
                     let mut partition_name = String::from("unknown");
-                    for partition in &partitions {
+                    for partition in &me.partitions {
                         if partition.dev == *key {
                             partition_name = partition.name.clone();
                         }
@@ -291,13 +285,8 @@ impl DefaultCollector {
             .expect("cannot get read/write counters");
         });
 
-        let child = child.clone();
         let wait_child_handle = thread::spawn(move || {
-            let status = {
-                let mut child_guard = child.lock().unwrap();
-                child_guard.wait()
-            };
-            match status {
+            match child.lock().unwrap().wait() {
                 Ok(status) => match status.code() {
                     Some(n) => {
                         if n != 0 {
@@ -309,19 +298,17 @@ impl DefaultCollector {
                 Err(e) => error!("target program exited with error {e}"),
             }
             // signal other threads to stop
-            drop(tx);
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
         });
 
         for handle in [energy_handle, wait_child_handle, tracing_handle] {
             handle.join().unwrap();
         }
     }
-}
 
-impl Collector for DefaultCollector {
     #[tracing::instrument(level = "debug", skip(self))]
-    fn attach(
-        &self,
+    pub fn attach(
+        self: Arc<Self>,
         program: PathBuf,
         args: Vec<String>,
         pre_run_executable: Option<PathBuf>,
@@ -330,14 +317,14 @@ impl Collector for DefaultCollector {
         post_run_args: Vec<String>,
         output_directory: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        for n in 1..self.sample_size + 1 {
+        for n in 1..self.clone().sample_size + 1 {
             let experiment_directory = output_directory.join(PathBuf::from(n.to_string()));
             create_dir_all(&experiment_directory)?;
 
             // i have no access to sgx machine yet
             if program.to_str().unwrap() == "gramine-sgx" {
                 File::create(experiment_directory.join("perf.csv"))?;
-                for (name, _) in &self.rapl_paths {
+                for (name, _) in &self.clone().rapl_paths {
                     File::create(experiment_directory.join(format!("{}.csv", name)))?;
                 }
                 continue;
@@ -361,7 +348,8 @@ impl Collector for DefaultCollector {
                 };
             }
 
-            self.run_experiment(&program, &args, &experiment_directory)?;
+            self.clone()
+                .run_experiment(&program, &args, experiment_directory.as_path())?;
 
             if let Some(cmd) = &post_run_executable {
                 match Command::new(cmd)
@@ -404,10 +392,10 @@ fn extract_rapl_path(entry: &DirEntry) -> Option<(String, PathBuf)> {
     }
 }
 
-fn get_map_result<T: Plain + Default>(
+fn get_map_result<K: Plain + Clone, T: Plain + Default>(
     map: &Map,
-    cb: Option<&dyn Fn(&Vec<u8>, &T)>,
-) -> Result<Vec<T>, Error> {
+    cb: Option<&dyn Fn(&K, &T)>,
+) -> Result<Vec<(K, T)>, Error> {
     let mut result = Vec::new();
     for key in map.keys() {
         let value = map
@@ -416,20 +404,16 @@ fn get_map_result<T: Plain + Default>(
 
         if let Some(bytes) = value {
             let mut value = T::default();
+            let key = K::from_bytes(&key).expect("cannot convert map key");
             plain::copy_from_bytes(&mut value, &bytes)?;
 
             if let Some(cb) = cb {
                 cb(&key, &value);
             }
-            result.push(value);
+            result.push((key.clone(), value));
         }
     }
     Ok(result)
-}
-impl Debug for dyn Collector {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Collector debug")
-    }
 }
 
 impl Debug for DefaultCollector {
@@ -498,18 +482,20 @@ impl Partition {
 
 #[cfg(test)]
 mod test {
-    use std::{path::PathBuf, time::Duration};
+    use std::{path::PathBuf, sync::Arc, time::Duration};
 
     use tempfile::TempDir;
 
-    use super::{Collector, DefaultCollector, Partition};
+    use super::{DefaultCollector, Partition};
 
     #[test]
     fn test_collector() {
         let output_directory = TempDir::new().unwrap();
         let sample_size = 1;
         let collector = DefaultCollector::new(sample_size, Duration::from_micros(500), None);
+        let collector = Arc::new(collector);
         collector
+            .clone()
             .attach(
                 PathBuf::from("/bin/sleep"),
                 vec!["1".to_string()],

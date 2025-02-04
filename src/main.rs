@@ -47,11 +47,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.globals.num_threads,
         config.globals.epc_size,
         config.globals.output_directory,
-        Box::new(DefaultCollector::new(
+        DefaultCollector::new(
             config.globals.sample_size,
             config.globals.energy_sample_interval,
             config.globals.extra_perf_events,
-        )),
+        ),
     )?;
 
     for task in config.tasks {
