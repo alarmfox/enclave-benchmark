@@ -60,6 +60,15 @@ jobs:
     steps:
     - name: Check out code
       uses: actions/checkout@v4
+    
+    - name: Setup host dependency
+      run: |
+        sudo apt-get update && sudo apt-get install -y \
+          linux-tools-common \
+          linux-tools-generic \
+          linux-tools-$(uname -r)
+
+        bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
 
     - uses: actions/cache@v4
       id: cache-docker-image
