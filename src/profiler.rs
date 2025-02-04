@@ -266,6 +266,7 @@ impl Profiler {
     pub fn profile(&self, task: Task) -> Result<(), Box<dyn std::error::Error>> {
         let program_name = task.executable.file_name().unwrap().to_str().unwrap();
         let task_path = self.output_directory.join(program_name);
+        let collector = self.collector.clone();
 
         for num_threads in &self.num_threads {
             for epc_size in &self.epc_size {
@@ -298,7 +299,7 @@ impl Profiler {
                         "{}-{}-{}-{}",
                         program_name, num_threads, epc_size, storage_type
                     ));
-                    self.collector.clone().attach(
+                    collector.clone().attach(
                         PathBuf::from("gramine-sgx"),
                         args,
                         task.pre_run_executable.clone(),
@@ -327,7 +328,7 @@ impl Profiler {
                 None,
             )?;
 
-            self.collector.clone().attach(
+            collector.clone().attach(
                 task.executable.clone(),
                 args,
                 task.pre_run_executable.clone(),

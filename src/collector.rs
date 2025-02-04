@@ -139,13 +139,19 @@ impl DefaultCollector {
         args: &[String],
         experiment_directory: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let cmd = {
-            Command::new(program)
-                .args(args)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-        };
+        let is_sgx = program.as_os_str() == "gramine-sgx";
+        if is_sgx {
+            File::create(experiment_directory.join("perf.csv"))?;
+            for (name, _) in &self.clone().rapl_paths {
+                File::create(experiment_directory.join(format!("{}.csv", name)))?;
+            }
+            return Ok(());
+        }
+        let cmd = Command::new(program)
+            .args(args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
         match cmd {
             Ok(child) => {
                 Command::new("perf")
@@ -162,8 +168,7 @@ impl DefaultCollector {
                     .stderr(Stdio::null())
                     .spawn()?;
 
-                // Monitor the child process
-                self.monitor_child_process(child, experiment_directory);
+                self.monitor_child_process(child, experiment_directory, is_sgx);
             }
             Err(e) => error!("process exited with error {}", e),
         }
@@ -204,7 +209,12 @@ impl DefaultCollector {
     }
 
     #[tracing::instrument(level = "trace", skip(self, child, experiment_directory))]
-    fn monitor_child_process(self: &Arc<Self>, child: Child, experiment_directory: &Path) {
+    fn monitor_child_process(
+        self: Arc<Self>,
+        child: Child,
+        experiment_directory: &Path,
+        is_sgx: bool,
+    ) {
         let stop = AtomicBool::new(false);
         let stop = Arc::new(stop);
         let pid = child.id();
@@ -232,6 +242,15 @@ impl DefaultCollector {
             );
             let mut prog = open_skel.load().expect("cannot load ebpf program");
             prog.attach().expect("cannot attach program");
+            // if running sgx process
+            // attach the kprobes to collect extra metrics
+            if is_sgx {
+                let _ = prog
+                    .progs
+                    .count_sgx_encl_page_alloc
+                    .attach_kprobe(false, "sgx_encl_page_alloc")
+                    .unwrap();
+            }
 
             // wait for program to stop
             loop {
@@ -283,6 +302,16 @@ impl DefaultCollector {
                 }),
             )
             .expect("cannot get read/write counters");
+
+            if is_sgx {
+                let _ = get_map_result::<u32, u64>(
+                    &prog.maps.sgx_page_alloc_counter,
+                    Some(&|_, v| {
+                        trace!("sgx_page_alloc {v}");
+                    }),
+                )
+                .expect("cannot parse sgx_page_alloc_counter map");
+            }
         });
 
         let wait_child_handle = thread::spawn(move || {
@@ -318,18 +347,10 @@ impl DefaultCollector {
         post_run_args: Vec<String>,
         output_directory: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        for n in 1..self.clone().sample_size + 1 {
+        let me = self.clone();
+        for n in 1..me.clone().sample_size + 1 {
             let experiment_directory = output_directory.join(PathBuf::from(n.to_string()));
             create_dir_all(&experiment_directory)?;
-
-            // i have no access to sgx machine yet
-            if program.to_str().unwrap() == "gramine-sgx" {
-                File::create(experiment_directory.join("perf.csv"))?;
-                for (name, _) in &self.clone().rapl_paths {
-                    File::create(experiment_directory.join(format!("{}.csv", name)))?;
-                }
-                continue;
-            }
 
             if let Some(cmd) = &pre_run_executable {
                 match Command::new(cmd)
@@ -349,7 +370,7 @@ impl DefaultCollector {
                 };
             }
 
-            self.clone()
+            me.clone()
                 .run_experiment(&program, &args, experiment_directory.as_path())?;
 
             if let Some(cmd) = &post_run_executable {

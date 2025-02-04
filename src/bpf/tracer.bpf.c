@@ -30,6 +30,13 @@ struct {
     __type(value, u64); 
 } start_ts_map SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);   // We'll use key "0" for the counter.
+    __type(value, u64); // The counter value.
+} sgx_page_alloc_counter SEC(".maps");
+
 static __always_inline int record_end_ts(int syscall) {
     u32 pid;
     u64 *start_ts;
@@ -130,6 +137,19 @@ int handle__block_rq_complete(void *args) {
         __sync_fetch_and_add(&counterp->bytes, nr_sector * 512);
     }
     counterp->last_sector = sector + nr_sector;
+    return 0;
+}
+
+SEC("kprobe/sgx_vma_access")
+int count_sgx_encl_page_alloc(struct pt_regs *ctx) {
+    u32 key = 0;
+    // Lookup the counter.
+    u64 *counter = bpf_map_lookup_elem(&sgx_page_alloc_counter, &key);
+    if (counter) {
+        // Atomically increment the counter.
+        __sync_fetch_and_add(counter, 1);
+    }
+
     return 0;
 }
 
