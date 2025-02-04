@@ -27,7 +27,12 @@ jobs:
           libbpf1 \
           clang \
           llvm-dev \
-          libelf-dev
+          libelf-dev \
+          linux-tools-common \
+          linux-tools-generic \
+          linux-tools-$(uname -r)
+
+        bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
 
     - name: Check
       run: cargo check --verbose
