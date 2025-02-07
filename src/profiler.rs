@@ -88,14 +88,12 @@ impl Profiler {
                 experiment_path.join(PathBuf::from(format!("{}.sig", executable_name)));
 
             let encrypted_path = experiment_path.join("encrypted");
-            let trusted_path = experiment_path.join("trusted");
             let untrusted_path = experiment_path.join("untrusted");
 
-            for path in [&encrypted_path, &trusted_path, &untrusted_path] {
+            for path in [&encrypted_path, &untrusted_path] {
                 create_dir_all(path)?;
             }
             let encrypted_path = encrypted_path.canonicalize().unwrap();
-            let trusted_path = trusted_path.canonicalize().unwrap();
             let untrusted_path = untrusted_path.canonicalize().unwrap();
 
             let tmpfs_path = PathBuf::from("/tmp");
@@ -116,7 +114,6 @@ impl Profiler {
                 ("num_threads_sgx", &(num_threads + 4).to_string()),
                 ("encrypted_path", encrypted_path.to_str().unwrap()),
                 ("untrusted_path", untrusted_path.to_str().unwrap()),
-                ("trusted_path", trusted_path.to_str().unwrap()),
                 ("tmpfs_path", tmpfs_path.to_str().unwrap()),
                 (
                     "start_directory",
@@ -383,7 +380,7 @@ mod test {
             [[tasks]]
             executable = "/bin/ls"
             args = ["-l", "-a"]
-            storage_type = ["invalid_storage_type", "tmpfs", "trusted"]
+            storage_type = ["invalid_storage_type", "tmpfs"]
             "#,
         )
         .unwrap();
