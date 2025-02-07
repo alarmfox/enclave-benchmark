@@ -57,8 +57,8 @@ pub struct DefaultCollector {
 struct DiskStats {
     name: String,
     bytes: u64,
-    perc_random: i32,
-    perc_seq: i32,
+    perc_random: u32,
+    perc_seq: u32,
 }
 
 // # of EENTERs:        139328
@@ -147,7 +147,7 @@ impl DefaultCollector {
 
         let cmd = Command::new(program)
             .args(args)
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn();
 
@@ -187,42 +187,34 @@ impl DefaultCollector {
                 let mut file = File::create(experiment_directory.join("io.csv")).unwrap();
                 writeln!(file, "{}", IO_CSV_HEADER).unwrap();
                 if let Some(sgx) = metrics.sgx_stats {
-                    writeln!(file, "sgx-enter,#,{},", sgx.eenter).unwrap();
-                    writeln!(file, "sgx-eexit,#,{},", sgx.eexit).unwrap();
-                    writeln!(file, "sgx-aexit,#,{},", sgx.aexit).unwrap();
+                    writeln!(file, "sgx_enter,#,{},,", sgx.eenter).unwrap();
+                    writeln!(file, "sgx_eexit,#,{},,", sgx.eexit).unwrap();
+                    writeln!(file, "sgx_aexit,#,{},,", sgx.aexit).unwrap();
+                    writeln!(file, "sgx_async_signals,#,{},,", sgx.async_signals).unwrap();
+                    writeln!(file, "sgx_sync_signals,#,{},,", sgx.sync_signals).unwrap();
+                }
+                writeln!(file, "sys_read,#,{},,", metrics.sys_read_count).unwrap();
+                writeln!(file, "sys_read,ns,{},,", metrics.sys_read_avg).unwrap();
+                writeln!(file, "sys_write,#,{},,", metrics.sys_write_count).unwrap();
+                writeln!(file, "sys_write,ns,{},,", metrics.sys_write_avg).unwrap();
+
+                for stats in metrics.disk_stats {
+                    writeln!(file, "disk_write_seq,%,{},{},", stats.perc_seq, stats.name).unwrap();
                     writeln!(
                         file,
-                        "sgx-async-signals,#,{},", sgx.async_signals
+                        "disk_write_rand,%,{},{},",
+                        stats.perc_random, stats.name
                     )
                     .unwrap();
                     writeln!(
                         file,
-                        "sgx-sync-signals,#,{},", sgx.sync_signals
+                        "disk_tot_written_bytes,%,{},{},",
+                        stats.bytes, stats.name
                     )
                     .unwrap();
                 }
-                writeln!(
-                    file,
-                    "sys_read,#,{},", metrics.sys_read_count
-                )
-                .unwrap();
-                writeln!(
-                    file,
-                    "sys_read,ns,{},", metrics.sys_read_avg
-                )
-                .unwrap();
-                writeln!(
-                    file,
-                    "sys_write,#,{},", metrics.sys_write_count
-                )
-                .unwrap();
-                writeln!(
-                    file,
-                    "sys_write,ns,{},", metrics.sys_write_avg
-                )
-                .unwrap();
             }
-            Err(e) => error!("process exited with error {}", e),
+            Err(e) => error!("cannot start child process {}", e),
         }
         Ok(())
     }
@@ -390,12 +382,25 @@ impl DefaultCollector {
         let energy_stats = energy_handle.join().unwrap();
 
         let disk_stats = disk_stats
-            .iter()
-            .map(|c| DiskStats {
-                name: "".to_string(),
-                bytes: 0,
-                perc_random: 100,
-                perc_seq: 100,
+            .into_iter()
+            .map(|(devid, stats)| {
+                let total = stats.random + stats.sequential;
+                return DiskStats {
+                    // search disk name by id
+                    name: self
+                        .clone()
+                        .partitions
+                        .iter()
+                        .filter(|x| x.dev == devid)
+                        .map(|p| p.name.clone())
+                        .collect::<Vec<String>>()
+                        .first()
+                        .unwrap_or(&"unknown device".to_string())
+                        .to_string(),
+                    bytes: stats.bytes,
+                    perc_random: stats.random * 100 / total,
+                    perc_seq: stats.sequential * 100 / total,
+                };
             })
             .collect::<Vec<DiskStats>>();
 
@@ -626,6 +631,9 @@ mod test {
                 .path()
                 .join(format!("{}/perf.csv", i))
                 .is_file());
+            assert!(output_directory.path().join("io.csv").is_file());
+            assert!(output_directory.path().join("stdout").is_file());
+            assert!(output_directory.path().join("stderr").is_file());
             for (name, _) in &collector.rapl_paths {
                 assert!(output_directory
                     .path()
