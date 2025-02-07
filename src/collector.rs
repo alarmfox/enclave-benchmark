@@ -1,14 +1,14 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
-    fs::{self, create_dir_all, DirEntry, File, OpenOptions},
+    fs::{self, create_dir_all, DirEntry, File},
     io::{BufRead, BufReader, Write},
     mem::MaybeUninit,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc,
     },
     thread,
     time::{Duration, SystemTime},
@@ -187,44 +187,38 @@ impl DefaultCollector {
                 let mut file = File::create(experiment_directory.join("io.csv")).unwrap();
                 writeln!(file, "{}", IO_CSV_HEADER).unwrap();
                 if let Some(sgx) = metrics.sgx_stats {
-                    writeln!(file, "{},{},{},{}", "sgx-enter", "#", sgx.eenter, "").unwrap();
-                    writeln!(file, "{},{},{},{}", "sgx-eexit", "#", sgx.eexit, "").unwrap();
-                    writeln!(file, "{},{},{},{}", "sgx-aexit", "#", sgx.aexit, "").unwrap();
+                    writeln!(file, "sgx-enter,#,{},", sgx.eenter).unwrap();
+                    writeln!(file, "sgx-eexit,#,{},", sgx.eexit).unwrap();
+                    writeln!(file, "sgx-aexit,#,{},", sgx.aexit).unwrap();
                     writeln!(
                         file,
-                        "{},{},{},{}",
-                        "sgx-async-signals", "#", sgx.async_signals, ""
+                        "sgx-async-signals,#,{},", sgx.async_signals
                     )
                     .unwrap();
                     writeln!(
                         file,
-                        "{},{},{},{}",
-                        "sgx-sync-signals", "#", sgx.sync_signals, ""
+                        "sgx-sync-signals,#,{},", sgx.sync_signals
                     )
                     .unwrap();
                 }
                 writeln!(
                     file,
-                    "{},{},{},{}",
-                    "sys_read", "#", metrics.sys_read_count, ""
+                    "sys_read,#,{},", metrics.sys_read_count
                 )
                 .unwrap();
                 writeln!(
                     file,
-                    "{},{},{},{}",
-                    "sys_read", "ns", metrics.sys_read_avg, ""
+                    "sys_read,ns,{},", metrics.sys_read_avg
                 )
                 .unwrap();
                 writeln!(
                     file,
-                    "{},{},{},{}",
-                    "sys_write", "#", metrics.sys_write_count, ""
+                    "sys_write,#,{},", metrics.sys_write_count
                 )
                 .unwrap();
                 writeln!(
                     file,
-                    "{},{},{},{}",
-                    "sys_write", "ns", metrics.sys_write_avg, ""
+                    "sys_write,ns,{},", metrics.sys_write_avg
                 )
                 .unwrap();
             }
