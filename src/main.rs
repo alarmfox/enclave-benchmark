@@ -9,6 +9,7 @@ use tracing::Level;
 
 mod collector;
 mod common;
+mod constants;
 mod profiler;
 
 #[derive(Parser)]

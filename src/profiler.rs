@@ -19,6 +19,7 @@ use rsa::{
 use crate::{
     collector::DefaultCollector,
     common::{StorageType, Task},
+    constants::MANIFEST,
 };
 
 #[derive(Debug)]
@@ -38,42 +39,6 @@ struct GramineMetadata {
     untrusted_path: PathBuf,
 }
 
-const MANIFEST: &str = r#"
-libos.entrypoint = "{{ executable }}"
-loader.log_level = "none"
-
-loader.env.OMP_NUM_THREADS = "{{ num_threads }}"
-loader.env.LD_LIBRARY_PATH = "/lib"
-loader.insecure__use_cmdline_argv = true
-
-fs.mounts = [
-  { path = "/lib", uri = "file:{{ gramine.runtimedir() }}" },
-  { path = "{{ executable }}", uri = "file:{{ executable }}" },
-  { type = "tmpfs", path = "{{ tmpfs_path }}" },
-  { path = "/trusted/", uri = "file:{{ trusted_path }}/" },
-  { type = "encrypted", path = "/encrypted/", uri = "file:{{ encrypted_path }}/", key_name = "default" },
-]
-
-# TODO: generate key
-fs.insecure__keys.default = "ffeeddccbbaa99887766554433221100"
-
-sgx.debug = true
-sgx.enable_stats = true
-sys.enable_sigterm_injection = true
-sgx.enclave_size = "{{ epc_size }}"
-sgx.max_threads = {{ num_threads_sgx }}
-sgx.edmm_enable = false
-
-sgx.trusted_files = [
-  "file:{{ executable }}",
-  "file:{{ gramine.runtimedir( libc ) }}/",
-  "file:{{ executable_path }}/",
-]
-
-sgx.allowed_files = [
-  "file::{{ untrusted_path }}/",
-]
-"#;
 impl Profiler {
     pub fn new(
         num_threads: Vec<usize>,
