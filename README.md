@@ -72,106 +72,65 @@ Each task can specify a `storage_type` array (see `writer` task in the example a
 * tmpfs: an in memory filesystem similar to tmpfs which is encrypted according to Gramine;
 * untrusted: simple storage with no integrity check and no encryption;
 
-Results will be stored in `output_directory` and it will have the following structure (obtained executing `examples/minimal.toml`):
+Results will be stored in `output_directory` and it will have the following structure (obtained executing `examples/iobound.toml`):
 
 ```sh
-tree -L 6 /tmp/test
+tree test
 
-/tmp/test/
-|-- private_key.pem
-`-- sleep
-    |-- gramine-sgx
-    |   |-- sleep-2-64M
-    |   |   |-- encrypted
-    |   |   |-- sleep-2-64M-untrusted
-    |   |   |   |-- 1
-    |   |   |   |   |-- package-0-core.csv
-    |   |   |   |   |-- package-0-dram.csv
-    |   |   |   |   |-- package-0-uncore.csv
-    |   |   |   |   |-- package-0.csv
-    |   |   |   |   |-- perf.csv
-    |   |   |   |-- 2
-    |   |   |   |   |-- package-0-core.csv
-    |   |   |   |   |-- package-0-dram.csv
-    |   |   |   |   |-- package-0-uncore.csv
-    |   |   |   |   |-- package-0.csv
-    |   |   |   |   |-- perf.csv
-    |   |   |   `-- 3
-    |   |   |       |-- package-0-core.csv
-    |   |   |       |-- package-0-dram.csv
-    |   |   |       |-- package-0-uncore.csv
-    |   |   |       |-- package-0.csv
-    |   |   |       |-- perf.csv
-    |   |   |-- sleep.manifest.sgx
-    |   |   |-- sleep.sig
-    |   |   |-- trusted
-    |   |   `-- untrusted
-    |   `-- sleep-4-64M
-    |       |-- encrypted
-    |       |-- sleep-4-64M-untrusted
-    |       |   |-- 1
-    |       |   |   |-- package-0-core.csv
-    |       |   |   |-- package-0-dram.csv
-    |       |   |   |-- package-0-uncore.csv
-    |       |   |   |-- package-0.csv
-    |       |   |   |-- perf.csv
-    |       |   |-- 2
-    |       |   |   |-- package-0-core.csv
-    |       |   |   |-- package-0-dram.csv
-    |       |   |   |-- package-0-uncore.csv
-    |       |   |   |-- package-0.csv
-    |       |   |   |-- perf.csv
-    |       |   `-- 3
-    |       |       |-- package-0-core.csv
-    |       |       |-- package-0-dram.csv
-    |       |       |-- package-0-uncore.csv
-    |       |       |-- package-0.csv
-    |       |       |-- perf.csv
-    |       |-- sleep.manifest.sgx
-    |       |-- sleep.sig
-    |       |-- trusted
-    |       `-- untrusted
-    `-- no-gramine-sgx
-        |-- sleep-2
-        |   |-- 1
-        |   |   |-- package-0-core.csv
-        |   |   |-- package-0-dram.csv
-        |   |   |-- package-0-uncore.csv
-        |   |   |-- package-0.csv
-        |   |   |-- perf.csv
-        |   |-- 2
-        |   |   |-- package-0-core.csv
-        |   |   |-- package-0-dram.csv
-        |   |   |-- package-0-uncore.csv
-        |   |   |-- package-0.csv
-        |   |   |-- perf.csv
-        |   |-- 3
-        |   |   |-- package-0-core.csv
-        |   |   |-- package-0-dram.csv
-        |   |   |-- package-0-uncore.csv
-        |   |   |-- package-0.csv
-        |   |   |-- perf.csv
-        |   `-- storage
-        `-- sleep-4
-            |-- 1
-            |   |-- package-0-core.csv
-            |   |-- package-0-dram.csv
-            |   |-- package-0-uncore.csv
-            |   |-- package-0.csv
-            |   |-- perf.csv
-            |-- 2
-            |   |-- package-0-core.csv
-            |   |-- package-0-dram.csv
-            |   |-- package-0-uncore.csv
-            |   |-- package-0.csv
-            |   |-- perf.csv
-            |-- 3
-            |   |-- package-0-core.csv
-            |   |-- package-0-dram.csv
-            |   |-- package-0-uncore.csv
-            |   |-- package-0.csv
-            |   |-- perf.csv
-            `-- storage
+test
+├── dd
+│   ├── gramine-sgx
+│   │   └── dd-1-256M
+│   │       ├── dd-1-256M-encrypted
+│   │       │   └── 1
+│   │       │       ├── io.csv
+│   │       │       ├── package-0-core.csv
+│   │       │       ├── package-0.csv
+│   │       │       ├── package-0-dram.csv
+│   │       │       ├── package-0-uncore.csv
+│   │       │       ├── perf.csv
+│   │       │       ├── stderr
+│   │       │       └── stdout
+│   │       ├── dd-1-256M-tmpfs
+│   │       │   └── 1
+│   │       │       ├── io.csv
+│   │       │       ├── package-0-core.csv
+│   │       │       ├── package-0.csv
+│   │       │       ├── package-0-dram.csv
+│   │       │       ├── package-0-uncore.csv
+│   │       │       ├── perf.csv
+│   │       │       ├── stderr
+│   │       │       └── stdout
+│   │       ├── dd-1-256M-untrusted
+│   │       │   └── 1
+│   │       │       ├── io.csv
+│   │       │       ├── package-0-core.csv
+│   │       │       ├── package-0.csv
+│   │       │       ├── package-0-dram.csv
+│   │       │       ├── package-0-uncore.csv
+│   │       │       ├── perf.csv
+│   │       │       ├── stderr
+│   │       │       └── stdout
+│   │       ├── dd.manifest.sgx
+│   │       ├── dd.sig
+│   │       ├── encrypted
+│   │       │   └── a.zero
+│   │       └── untrusted
+│   │           └── a.zero
+│   └── no-gramine-sgx
+│       └── dd-1
+│           ├── 1
+│           │   ├── io.csv
+│           │   ├── package-0-core.csv
+│           │   ├── package-0.csv
+│           │   ├── package-0-dram.csv
+│           │   ├── package-0-uncore.csv
+│           │   ├── perf.csv
+│           │   ├── stderr
+│           │   └── stdout
+│           └── storage
+│               └── a.zero
+└── private_key.pem
 ```
 
 ## Python bindings
