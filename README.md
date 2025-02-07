@@ -39,6 +39,7 @@ output_directory = "/tmp/test"
 num_threads = [2, 4]
 extra_perf_events = ["cpu-clock"]
 energy_sample_interval = "100ms"
+debug = true
 
 [[tasks]]
 pre_run_executable = "/usr/bin/echo"
