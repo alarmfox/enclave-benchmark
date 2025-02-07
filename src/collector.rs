@@ -404,14 +404,14 @@ impl DefaultCollector {
             .collect::<Vec<DiskStats>>();
 
         let zero_value = (0, io_counter::default());
-        let (_, counter) = mem_stats.get(0).unwrap_or_else(|| &zero_value);
+        let (_, counter) = mem_stats.first().unwrap_or(&zero_value);
         let sys_write_count = counter.count;
         let sys_write_avg = if counter.count > 0 {
             counter.total_duration / counter.count
         } else {
             0
         };
-        let (_, counter) = mem_stats.get(1).unwrap_or_else(|| &zero_value);
+        let (_, counter) = mem_stats.get(1).unwrap_or(&zero_value);
         let sys_read_count = counter.count;
         let sys_read_avg = if counter.count > 0 {
             counter.total_duration / counter.count
