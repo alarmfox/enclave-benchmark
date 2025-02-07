@@ -344,7 +344,7 @@ impl DefaultCollector {
                     // capture the stderr and get metrics if on sgx
                     if is_sgx {
                         let mut counters = SGXStats::default();
-                        for line in output.stderr.lines().flatten() {
+                        for line in output.stderr.lines().map_while(Result::ok) {
                             // # of EENTERs:        139328
                             // # of EEXITs:         139250
                             // # of AEXs:           5377
@@ -385,7 +385,7 @@ impl DefaultCollector {
             .into_iter()
             .map(|(devid, stats)| {
                 let total = stats.random + stats.sequential;
-                return DiskStats {
+                DiskStats {
                     // search disk name by id
                     name: self
                         .clone()
@@ -400,7 +400,7 @@ impl DefaultCollector {
                     bytes: stats.bytes,
                     perc_random: stats.random * 100 / total,
                     perc_seq: stats.sequential * 100 / total,
-                };
+                }
             })
             .collect::<Vec<DiskStats>>();
 
