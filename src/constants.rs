@@ -1,6 +1,6 @@
 pub const MANIFEST: &str = r#"
 libos.entrypoint = "{{ executable }}"
-loader.log_level = "none"
+loader.log_level = "{{ debug }}"
 
 loader.env.OMP_NUM_THREADS = "{{ num_threads }}"
 loader.env.LD_LIBRARY_PATH = "/lib"
@@ -8,31 +8,34 @@ loader.insecure__use_cmdline_argv = true
 
 fs.mounts = [
   { path = "/lib", uri = "file:{{ gramine.runtimedir() }}" },
+  { path = "/usr/lib", uri = "file:/usr/lib" },
+  { path = "{{ arch_libdir }}", uri = "file:{{ arch_libdir }}" },
   { path = "{{ executable }}", uri = "file:{{ executable }}" },
   { type = "tmpfs", path = "{{ tmpfs_path }}" },
-  { path = "/trusted/", uri = "file:{{ trusted_path }}/" },
   { type = "encrypted", path = "/encrypted/", uri = "file:{{ encrypted_path }}/", key_name = "default" },
+  { path = "/untrusted/", uri = "file:{{ untrusted_path }}/" },
 ]
 
-# TODO: generate key
 fs.insecure__keys.default = "ffeeddccbbaa99887766554433221100"
 
 sgx.debug = true
 sgx.profile.mode = "ocall_outer"
 sgx.enable_stats = true
 sys.enable_sigterm_injection = true
-sgx.enclave_size = "{{ epc_size }}"
+sgx.enclave_size = "{{ enclave_size }}"
 sgx.max_threads = {{ num_threads_sgx }}
-sgx.edmm_enable = false
+sgx.edmm_enable = {{ 'true' if env.get('EDMM', '0') == '1' else 'false' }}
 
 sgx.trusted_files = [
   "file:{{ executable }}",
   "file:{{ gramine.runtimedir( libc ) }}/",
   "file:{{ executable_path }}/",
+  "file:{{ arch_libdir }}/",
+  "file:/usr/{{ arch_libdir }}/",
 ]
 
 sgx.allowed_files = [
-  "file::{{ untrusted_path }}/",
+  "file:{{ untrusted_path }}/",
 ]
 "#;
 

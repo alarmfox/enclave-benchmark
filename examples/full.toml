@@ -1,6 +1,6 @@
 [globals]
 sample_size = 3
-epc_size = ["64M", "128M"]
+enclave_size = ["64M", "128M"]
 output_directory = "/tmp/test"
 num_threads = [1, 2]
 extra_perf_events = ["cpu-clock"]
@@ -23,5 +23,5 @@ post_run_args = ["-C", "examples/basic-c-app", "clean", "output={{ output_direct
 [[tasks]]
 executable = "examples/simple-writer/writer"
 args = ["{{ output_directory }}"]
-storage_type = ["encrypted", "tmpfs", "trusted", "untrusted"]
+storage_type = ["encrypted", "tmpfs", "untrusted"]
 

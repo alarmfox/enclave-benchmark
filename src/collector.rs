@@ -199,16 +199,16 @@ impl DefaultCollector {
                 writeln!(file, "sys_write,ns,{},,", metrics.sys_write_avg).unwrap();
 
                 for stats in metrics.disk_stats {
-                    writeln!(file, "disk_write_seq,%,{},{},", stats.perc_seq, stats.name).unwrap();
+                    writeln!(file, "disk_write_seq,%,{},{}", stats.perc_seq, stats.name).unwrap();
                     writeln!(
                         file,
-                        "disk_write_rand,%,{},{},",
+                        "disk_write_rand,%,{},{}",
                         stats.perc_random, stats.name
                     )
                     .unwrap();
                     writeln!(
                         file,
-                        "disk_tot_written_bytes,%,{},{},",
+                        "disk_tot_written_bytes,%,{},{}",
                         stats.bytes, stats.name
                     )
                     .unwrap();
@@ -388,7 +388,6 @@ impl DefaultCollector {
                 DiskStats {
                     // search disk name by id
                     name: self
-                        .clone()
                         .partitions
                         .iter()
                         .filter(|x| x.dev == devid)
@@ -404,17 +403,18 @@ impl DefaultCollector {
             })
             .collect::<Vec<DiskStats>>();
 
-        let read_stats = mem_stats[1].1;
-        let sys_read_count = read_stats.count;
-        let sys_read_avg = if read_stats.count > 0 {
-            read_stats.total_duration / read_stats.count
+        let zero_value = (0, io_counter::default());
+        let (_, counter) = mem_stats.get(0).unwrap_or_else(|| &zero_value);
+        let sys_write_count = counter.count;
+        let sys_write_avg = if counter.count > 0 {
+            counter.total_duration / counter.count
         } else {
             0
         };
-        let write_stats = mem_stats[0].1;
-        let sys_write_count = write_stats.count;
-        let sys_write_avg = if write_stats.count > 0 {
-            write_stats.total_duration / write_stats.count
+        let (_, counter) = mem_stats.get(1).unwrap_or_else(|| &zero_value);
+        let sys_read_count = counter.count;
+        let sys_read_avg = if counter.count > 0 {
+            counter.total_duration / counter.count
         } else {
             0
         };
@@ -627,18 +627,13 @@ mod test {
             .unwrap();
 
         for i in 1..sample_size + 1 {
-            assert!(output_directory
-                .path()
-                .join(format!("{}/perf.csv", i))
-                .is_file());
-            assert!(output_directory.path().join("io.csv").is_file());
-            assert!(output_directory.path().join("stdout").is_file());
-            assert!(output_directory.path().join("stderr").is_file());
+            let iter_directory = output_directory.path().join(i.to_string());
+            assert!(iter_directory.join("perf.csv").is_file());
+            assert!(iter_directory.join("io.csv").is_file());
+            assert!(iter_directory.join("stdout").is_file());
+            assert!(iter_directory.join("stderr").is_file());
             for (name, _) in &collector.rapl_paths {
-                assert!(output_directory
-                    .path()
-                    .join(format!("{}/{}.csv", i, name))
-                    .is_file())
+                assert!(iter_directory.join(format!("{}.csv", name)).is_file())
             }
         }
     }

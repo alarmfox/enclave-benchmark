@@ -57,7 +57,7 @@ args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "clean", "app"
 [[tasks]]
 executable = "./examples/simple-writer/writer"
 args = ["{{ output_directory }}"]
-storage_type = ["encrypted", "tmpfs", "trusted", "untrusted"]
+storage_type = ["encrypted", "tmpfs", "untrusted"]
 
 ```
 A workload file has 2 sections:
@@ -70,7 +70,6 @@ The `toml` file is dynamic. For example, if an application executes with differe
 Each task can specify a `storage_type` array (see `writer` task in the example above). Supported storage are:
 * encrypted: Gramine encrypted directory with an hardcoded key;
 * tmpfs: an in memory filesystem similar to tmpfs which is encrypted according to Gramine;
-* trusted: storage with integrity check and `chroot` environment;
 * untrusted: simple storage with no integrity check and no encryption;
 
 Results will be stored in `output_directory` and it will have the following structure (obtained executing `examples/minimal.toml`):

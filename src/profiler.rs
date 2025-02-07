@@ -27,14 +27,14 @@ pub struct Profiler {
     private_key_path: PathBuf,
     output_directory: PathBuf,
     num_threads: Vec<usize>,
-    epc_size: Vec<String>,
+    enclave_size: Vec<String>,
     collector: Arc<DefaultCollector>,
+    debug: bool,
 }
 #[derive(Debug, Clone)]
 struct GramineMetadata {
     manifest_path: PathBuf,
     encrypted_path: PathBuf,
-    trusted_path: PathBuf,
     tmpfs_path: PathBuf,
     untrusted_path: PathBuf,
 }
@@ -42,8 +42,9 @@ struct GramineMetadata {
 impl Profiler {
     pub fn new(
         num_threads: Vec<usize>,
-        epc_size: Vec<String>,
+        enclave_size: Vec<String>,
         output_directory: PathBuf,
+        debug: bool,
         collector: DefaultCollector,
     ) -> Result<Self, std::io::Error> {
         create_dir(&output_directory)?;
@@ -61,7 +62,8 @@ impl Profiler {
             private_key_path,
             output_directory,
             num_threads,
-            epc_size,
+            enclave_size,
+            debug,
             collector: Arc::new(collector),
         })
     }
@@ -72,7 +74,7 @@ impl Profiler {
         executable: &PathBuf,
         experiment_path: &PathBuf,
         num_threads: &usize,
-        epc_size: &String,
+        enclave_size: &String,
         custom_manifest_path: Option<PathBuf>,
     ) -> PyResult<GramineMetadata> {
         // ported from https://gramine.readthedocs.io/en/stable/python/api.html
@@ -107,15 +109,21 @@ impl Profiler {
             let sign_with_local_key = gramine.getattr("sign_with_local_key")?;
 
             let args = [
+                ("arch_libdir", "/lib/x86_64-linux-gnu/"),
                 ("executable", executable.to_str().unwrap()),
-                ("epc_size", epc_size),
+                ("enclave_size", enclave_size),
                 ("num_threads", &num_threads.to_string()),
                 ("num_threads_sgx", &(num_threads + 4).to_string()),
                 ("encrypted_path", encrypted_path.to_str().unwrap()),
                 ("untrusted_path", untrusted_path.to_str().unwrap()),
                 ("trusted_path", trusted_path.to_str().unwrap()),
                 ("tmpfs_path", tmpfs_path.to_str().unwrap()),
+                (
+                    "start_directory",
+                    manifest_path.parent().unwrap().to_str().unwrap(),
+                ),
                 ("executable_path", executable_path.to_str().unwrap()),
+                ("debug", if self.debug { "debug" } else { "none" }),
                 (
                     "libc",
                     if cfg!(target_env = "musl") {
@@ -166,9 +174,8 @@ impl Profiler {
             Ok(GramineMetadata {
                 manifest_path,
                 encrypted_path: PathBuf::from("/encrypted/"),
-                trusted_path: PathBuf::from("/trusted/"),
                 tmpfs_path,
-                untrusted_path,
+                untrusted_path: PathBuf::from("/untrusted/"),
             })
         })
     }
@@ -189,7 +196,6 @@ impl Profiler {
             Some(metadata) => match storage_type {
                 Some(StorageType::Encrypted) => metadata.encrypted_path,
                 Some(StorageType::Untrusted) => metadata.untrusted_path,
-                Some(StorageType::Trusted) => metadata.trusted_path,
                 Some(StorageType::Tmpfs) => metadata.tmpfs_path,
                 None => panic!("gramine sgx must have a storage type"),
             },
@@ -237,10 +243,10 @@ impl Profiler {
         let collector = self.collector.clone();
 
         for num_threads in &self.num_threads {
-            for epc_size in &self.epc_size {
+            for enclave_size in &self.enclave_size {
                 let experiment_path = task_path.join(format!(
                     "gramine-sgx/{}-{}-{}",
-                    program_name, num_threads, epc_size
+                    program_name, num_threads, enclave_size
                 ));
                 create_dir_all(&experiment_path)?;
 
@@ -248,7 +254,7 @@ impl Profiler {
                     &task.executable,
                     &experiment_path,
                     num_threads,
-                    epc_size,
+                    enclave_size,
                     task.custom_manifest_path.clone(),
                 )?;
 
@@ -265,8 +271,9 @@ impl Profiler {
 
                     let result_path = &experiment_path.join(format!(
                         "{}-{}-{}-{}",
-                        program_name, num_threads, epc_size, storage_type
+                        program_name, num_threads, enclave_size, storage_type
                     ));
+
                     collector.clone().attach(
                         PathBuf::from("gramine-sgx"),
                         args,
@@ -312,35 +319,39 @@ impl Profiler {
 
 #[cfg(test)]
 mod test {
+    use std::time::Duration;
+
     use common::StorageType;
     use profiler::GramineMetadata;
     use tempfile::TempDir;
 
     use crate::*;
 
-    //#[test]
-    //fn build_and_sign_enclave() {
-    //    let output_directory = TempDir::new().unwrap();
-    //    let profiler = Profiler::new(
-    //        vec![1],
-    //        vec!["64M".to_string()],
-    //        output_directory.path().join("profiler").to_path_buf(),
-    //        Box::new(DummyCollector),
-    //    )
-    //    .unwrap();
-    //
-    //    profiler
-    //        .build_and_sign_enclave(
-    //            &PathBuf::from("/bin/ls"),
-    //            &output_directory.path().to_path_buf(),
-    //            &1,
-    //            &"64M".to_string(),
-    //            None,
-    //        )
-    //        .unwrap();
-    //}
     #[test]
-    fn test_example_configs() {
+    fn build_and_sign_enclave() {
+        let collector = collector::DefaultCollector::new(1, Duration::from_millis(100), None);
+        let output_directory = TempDir::new().unwrap();
+        let profiler = Profiler::new(
+            vec![1],
+            vec!["64M".to_string()],
+            output_directory.path().join("profiler").to_path_buf(),
+            false,
+            collector,
+        )
+        .unwrap();
+
+        profiler
+            .build_and_sign_enclave(
+                &PathBuf::from("/bin/ls"),
+                &output_directory.path().to_path_buf(),
+                &1,
+                &"64M".to_string(),
+                None,
+            )
+            .unwrap();
+    }
+    #[test]
+    fn example_configs() {
         let mut buf = String::new();
         let examples = [
             "examples/full.toml",
@@ -359,12 +370,12 @@ mod test {
     }
     #[test]
     #[should_panic]
-    fn test_invalid_storage_type() {
+    fn invalid_storage_type() {
         toml::from_str::<Config>(
             r#"
             [globals]
             sample_size = 3
-            epc_size = ["64M", "128M"]
+            enclave_size = ["64M", "128M"]
             num_threads = [1]
             output_directory = "/test"
             [[tasks]]
@@ -379,7 +390,7 @@ mod test {
     }
 
     #[test]
-    fn test_build_and_expand_args() {
+    fn build_and_expand_args() {
         let output_directory = TempDir::new().unwrap().path().join("storage");
         let args = vec![
             String::from("{{ output_directory }}"),
@@ -408,7 +419,6 @@ mod test {
             manifest_path: output_directory.join("app.manifest.sgx"),
             encrypted_path: output_directory.join("encrypted_path"),
             untrusted_path: output_directory.join("plaintext_path"),
-            trusted_path: output_directory.join("trusted_path"),
             tmpfs_path: output_directory.join("tmpfs_path"),
         };
         let args = Profiler::build_and_expand_args(
@@ -440,7 +450,7 @@ mod test {
 
     #[test]
     #[should_panic]
-    fn test_missing_storage_for_sgx() {
+    fn missing_storage_for_sgx() {
         let output_directory = TempDir::new().unwrap().path().join("storage");
         let args = vec![
             String::from("{{ output_directory }}"),
@@ -451,7 +461,6 @@ mod test {
             manifest_path: output_directory.join("app.manifest.sgx"),
             encrypted_path: output_directory.join("encrypted_path"),
             untrusted_path: output_directory.join("plaintext_path"),
-            trusted_path: output_directory.join("trusted_path"),
             tmpfs_path: output_directory.join("tmpfs_path"),
         };
         Profiler::build_and_expand_args(
@@ -467,12 +476,12 @@ mod test {
     }
 
     #[test]
-    fn test_default_storage_type() {
+    fn default_storage_type() {
         let config = toml::from_str::<Config>(
             r#"
             [globals]
             sample_size = 3
-            epc_size = ["64M", "128M"]
+            enclave_size = ["64M", "128M"]
             num_threads = [1]
             output_directory = "/test"
             [[tasks]]
@@ -481,12 +490,14 @@ mod test {
             [[tasks]]
             executable = "/bin/ls"
             args = ["-l", "-a"]
-            storage_type = ["tmpfs", "trusted"]
+            storage_type = ["tmpfs"] 
             "#,
         )
         .unwrap();
 
+        assert_eq!(config.tasks.len(), 2);
         assert_eq!(config.tasks[0].storage_type.len(), 1);
         assert_eq!(config.tasks[0].storage_type[0], StorageType::Untrusted);
+        assert_eq!(config.tasks[1].storage_type[0], StorageType::Tmpfs);
     }
 }

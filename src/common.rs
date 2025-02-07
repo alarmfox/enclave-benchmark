@@ -7,9 +7,12 @@ use serde::Deserialize;
 pub struct GlobalParams {
     pub sample_size: u32,
     pub num_threads: Vec<usize>,
-    pub epc_size: Vec<String>,
+    pub enclave_size: Vec<String>,
     pub output_directory: PathBuf,
     pub extra_perf_events: Option<Vec<String>>,
+
+    #[serde(default)]
+    pub debug: bool,
 
     #[serde(
         deserialize_with = "deserialize_duration",
@@ -48,7 +51,6 @@ pub fn default_storage_type() -> Vec<StorageType> {
 pub enum StorageType {
     Encrypted,
     Tmpfs,
-    Trusted,
     Untrusted,
 }
 
@@ -57,7 +59,6 @@ impl Display for StorageType {
         match self {
             Self::Encrypted => write!(f, "encrypted"),
             Self::Tmpfs => write!(f, "tmpfs"),
-            Self::Trusted => write!(f, "trusted"),
             Self::Untrusted => write!(f, "untrusted"),
         }
     }

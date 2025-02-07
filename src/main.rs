@@ -2,10 +2,15 @@ use collector::DefaultCollector;
 use common::{GlobalParams, Task};
 use profiler::Profiler;
 use serde::Deserialize;
-use std::{fmt::Debug, fs::File, io::Read, path::PathBuf};
+use std::{
+    fmt::Debug,
+    fs::{remove_dir_all, File},
+    io::Read,
+    path::PathBuf,
+};
 
 use clap::{arg, command, Parser};
-use tracing::Level;
+use tracing::{warn, Level};
 
 mod collector;
 mod common;
@@ -21,6 +26,9 @@ struct Cli {
 
     #[arg(short, long, default_value = "workload.toml")]
     config_path: PathBuf,
+
+    #[arg(long, default_value = "false")]
+    force: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -44,10 +52,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let n = File::open(cli.config_path)?.read_to_string(&mut config)?;
     let config = toml::from_str::<Config>(&config[..n])?;
 
+    if cli.force {
+        warn!("force specified; deleting previous results directory...");
+        match remove_dir_all(config.globals.output_directory.clone()) {
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => (),
+            v => v?,
+        }
+    }
+
     let profiler = Profiler::new(
         config.globals.num_threads,
-        config.globals.epc_size,
+        config.globals.enclave_size,
         config.globals.output_directory,
+        config.globals.debug,
         DefaultCollector::new(
             config.globals.sample_size,
             config.globals.energy_sample_interval,
@@ -61,29 +78,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[test]
-fn test_parse_config() {
-    let config = toml::from_str::<Config>(
-        r#"
+#[cfg(test)]
+mod test {
+    use crate::Config;
+
+    #[test]
+    fn parse_config() {
+        let config = toml::from_str::<Config>(
+            r#"
             [globals]
             sample_size = 3
-            epc_size = ["64M", "128M"]
+            enclave_size = ["64M", "128M"]
             num_threads = [1]
             output_directory = "/test"
+            debug = true
             [[tasks]]
             executable = "/bin/ls"
             [[tasks]]
             executable = "/bin/ls"
             args = ["-l", "-a"]
-            storage_type = ["encrypted", "tmpfs", "trusted"]
+            storage_type = ["encrypted", "tmpfs"] 
             "#,
-    )
-    .unwrap();
-    assert_eq!(2, config.tasks.len());
-    assert_eq!(3, config.globals.sample_size);
-    let args = config.tasks[1].clone().args.unwrap();
-    assert_eq!(2, args.len());
-    assert_eq!(1, config.globals.num_threads.len());
-    assert_eq!(2, config.globals.epc_size.len());
-    assert_eq!(1, config.globals.num_threads[0]);
+        )
+        .unwrap();
+        assert!(config.globals.debug);
+        assert_eq!(2, config.tasks.len());
+        assert_eq!(3, config.globals.sample_size);
+        let args = config.tasks[1].clone().args.unwrap();
+        assert_eq!(2, args.len());
+        assert_eq!(1, config.globals.num_threads.len());
+        assert_eq!(2, config.globals.enclave_size.len());
+        assert_eq!(1, config.globals.num_threads[0]);
+    }
 }
