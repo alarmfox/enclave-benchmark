@@ -37,9 +37,6 @@ jobs:
     - name: Check
       run: cargo check --verbose
 
-    - name: Build
-      run: cargo build --verbose
-
     - uses: Swatinem/rust-cache@v2
     - uses: dtolnay/rust-toolchain@master
       with:
