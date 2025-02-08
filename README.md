@@ -1,9 +1,8 @@
 # Intel based TEE benchmark
-This tool collects metrics comparing application performance when excuted in an Intel based 
-TEE (SGX) using Gramine and bare metal.
+This tool collects metrics to compare application performance when executed in an Intel-based TEE (SGX) 
+using Gramine versus running on bare metal.
 
 Full documentation is available [here](https://alarmfox.github.io/enclave-benchmark/).
-
 
 ## Quick start
 
@@ -20,7 +19,7 @@ meson setup build/ \
 For more information, refer to [Build Gramine from source](https://gramine.readthedocs.io/en/stable/devel/building.html).
 
 ### Building [Ubuntu 24.04-only]
-First you will need to install a [Rust toolchain](https://rustup.rs/). Usually this can be done running the following command 
+First, you will need to install a [Rust toolchain](https://rustup.rs/). Usually this can be done running the following command 
 and following the instructions:
 
 ```sh
@@ -30,18 +29,17 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 This projects uses [Gramine Python API](https://gramine.readthedocs.io/en/stable/python/api.html) (which needs Python `<3.13`) 
 with [PyO3](https://github.com/PyO3/pyo3) and needs `python3-dev` package. 
 
-Install build dependencies with:
+Next, install build dependencies with:
 ```sh
 sudo apt-get update && sudo apt-get install -y python3-dev clang llvm-dev linux-tools-`uname -r` libbpf-dev make pkg-config
 ```
-
-Next we need to generate a `vmlinux.h` to compile eBPF programs. (this can be also avoided by download a `vmlinux.h` from 
-[here](https://github.com/libbpf/vmlinux.h))
+Next, you need to generate a `vmlinux.h` to compile eBPF programs. (this can be also avoided
+by downloading a `vmlinux.h` from [here](https://github.com/libbpf/vmlinux.h))
 ```sh
 bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
 ```
 
-Now we run the build command (remove `--release` to make a fast but unoptimized build):
+Now, you can run the build command (remove `--release` for a fast but unoptimized build):
 ```sh
 cargo build --release
 ```
@@ -174,12 +172,11 @@ A workload file has 2 sections:
 * task: each task is a program to benchmark and has an executable and args;
 
 ### Variables expansion
-The `toml` file is dynamic. For example, if an application executes with different number of threads you can mark the parameter with the `{{ num_threads }}` placeholder. On each iteration it will be populated with an element from `globals.num_threads` (see `make` task in the example above).
+The `toml` file is dynamic. For example, if an application executes with different number of threads
+you can mark the parameter with the `{{ num_threads }}` placeholder. On each iteration it will be
+populated with an element from `globals.num_threads` (see `make` task in the example above).
 
 Each task can specify a `storage_type` array (see `writer` task in the example above). Supported storage are:
 * encrypted: Gramine encrypted directory with an hardcoded key;
 * tmpfs: an in memory filesystem similar to tmpfs which is encrypted according to Gramine;
 * untrusted: simple storage with no integrity check and no encryption;
-
-Results will be stored in `output_directory` and it will have the following structure (obtained executing `examples/iobound.toml`):
-
