@@ -1,5 +1,6 @@
 # Intel based TEE benchmark
-This tool collects applications metrics when excuted in an Intel based TEE (SGX) using Gramine.
+This tool collects metrics comparing application performance when excuted in an Intel based 
+TEE (SGX) using Gramine and bare metal.
 bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h
 
 Full documentation is available [here](https://alarmfox.github.io/enclave-benchmark/).

@@ -204,27 +204,6 @@ impl DefaultCollector {
         Ok(())
     }
 
-    fn monitor_energy_consumption(&self, stop: &AtomicBool) -> HashMap<String, Vec<String>> {
-        let mut measures: HashMap<String, Vec<String>> = HashMap::new();
-        while !stop.load(Ordering::Relaxed) {
-            let timestamp = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            for (name, rapl_path) in &self.rapl_paths {
-                if let Ok(energy_uj) = fs::read_to_string(rapl_path) {
-                    measures.entry(name.to_owned()).or_default().push(format!(
-                        "{},{}",
-                        timestamp,
-                        energy_uj.trim()
-                    ));
-                }
-            }
-            thread::sleep(self.energy_sample_interval);
-        }
-        measures
-    }
-
     #[tracing::instrument(level = "trace", skip(self, child))]
     fn collect_metrics(self: Arc<Self>, child: Child, is_sgx: bool) -> Metrics {
         let stop = Arc::new(AtomicBool::new(false));
@@ -287,18 +266,19 @@ impl DefaultCollector {
             .arg(self.perf_events.join(","))
             .arg("--pid")
             .arg(pid.to_string())
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
         match perf_cmd.output() {
             Ok(output) => {
                 if !output.status.success() {
                     error!(
-                        "perf process exited with non-zero code {}: {}",
+                        "perf process exited with non-zero code {}: {} {}",
                         output
                             .status
                             .code()
                             .map_or("unknown".to_string(), |c| c.to_string()),
+                        String::from_utf8_lossy(&output.stdout),
                         String::from_utf8_lossy(&output.stderr)
                     );
                 }
@@ -308,6 +288,27 @@ impl DefaultCollector {
         };
 
         perf_output
+    }
+
+    fn monitor_energy_consumption(&self, stop: &AtomicBool) -> HashMap<String, Vec<String>> {
+        let mut measures: HashMap<String, Vec<String>> = HashMap::new();
+        while !stop.load(Ordering::Relaxed) {
+            let timestamp = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            for (name, rapl_path) in &self.rapl_paths {
+                if let Ok(energy_uj) = fs::read_to_string(rapl_path) {
+                    measures.entry(name.to_owned()).or_default().push(format!(
+                        "{},{}",
+                        timestamp,
+                        energy_uj.trim()
+                    ));
+                }
+            }
+            thread::sleep(self.energy_sample_interval);
+        }
+        measures
     }
 
     #[allow(clippy::type_complexity)]
@@ -584,13 +585,13 @@ mod utils {
         let (mut sys_read_count, mut sys_read_avg) = (0, 0);
         for (op, stat) in mem_stats {
             match op {
-                1 => {
-                    sys_read_count = stat.count;
-                    sys_read_avg = stat.total_duration.checked_div(stat.count).unwrap_or(0);
-                }
                 0 => {
                     sys_write_count = stat.count;
                     sys_write_avg = stat.total_duration.checked_div(stat.count).unwrap_or(0);
+                }
+                1 => {
+                    sys_read_count = stat.count;
+                    sys_read_avg = stat.total_duration.checked_div(stat.count).unwrap_or(0);
                 }
                 _ => panic!("unknown system call type expected 0 for READ and 1 for WRITE"),
             }
