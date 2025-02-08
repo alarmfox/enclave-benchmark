@@ -1,5 +1,6 @@
 #ifndef __TRACER_H
 #define __TRACER_H
+#define EB_SKIP_SGX
 
 #define SYSCALL_WRITE 0
 #define SYSCALL_READ 1
