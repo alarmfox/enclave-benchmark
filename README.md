@@ -39,7 +39,7 @@ Next we need to generate a `vmlinux.h` to compile eBPF programs.
 bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
 ```
 
-Now we run the build command (remove --release to make a fast but unoptimized build):
+Now we run the build command (remove `--release` to make a fast but unoptimized build):
 ```sh
 cargo build --release
 ```
@@ -168,7 +168,7 @@ storage_type = ["encrypted", "tmpfs", "untrusted"]
 
 ```
 A workload file has 2 sections:
-* globals: parameters used to generate experiments, output directory and add custom perf_events;
+* globals: parameters used to generate experiments, output directory, custom perf_events, debug etc.;
 * task: each task is a program to benchmark and has an executable and args;
 
 ### Variables expansion
