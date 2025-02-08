@@ -2,4 +2,4 @@
 rustflags = ["-lzstd", "-C", "target-feature=-crt-static"]
 
 [target.'cfg(all())']
-runner = "sudo --preserve-env=PATH,PYTHONPATH,LD_LIBRARY_PATH"
+runner = "sudo --preserve-env=EB_SKIP_SGX,PATH,PYTHONPATH,LD_LIBRARY_PATH"
