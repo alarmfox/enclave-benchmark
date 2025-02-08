@@ -221,26 +221,22 @@ impl DefaultCollector {
 
     fn monitor_energy_consumption(&self, stop: &AtomicBool) -> HashMap<String, Vec<String>> {
         let mut measures: HashMap<String, Vec<String>> = HashMap::new();
-        loop {
-            if stop.load(Ordering::Relaxed) {
-                break;
-            }
+        while !stop.load(Ordering::Relaxed) {
             let timestamp = SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
             for (name, rapl_path) in &self.rapl_paths {
-                // get measurement
-                let energy_uj = fs::read_to_string(rapl_path).unwrap().trim().to_string();
-                measures
-                    .entry(name.to_owned())
-                    .or_default()
-                    .push(format!("{},{}", timestamp, energy_uj));
+                if let Ok(energy_uj) = fs::read_to_string(rapl_path) {
+                    measures.entry(name.to_owned()).or_default().push(format!(
+                        "{},{}",
+                        timestamp,
+                        energy_uj.trim()
+                    ));
+                }
             }
-
             thread::sleep(self.energy_sample_interval);
         }
-
         measures
     }
 
@@ -255,6 +251,7 @@ impl DefaultCollector {
 
         let tracing_stop = stop.clone();
         let me = self.clone();
+
         let tracing_handle = thread::spawn(move || {
             let skel_builder = TracerSkelBuilder::default();
             let mut open_object = MaybeUninit::uninit();
@@ -270,28 +267,18 @@ impl DefaultCollector {
             prog.attach().expect("cannot attach program");
 
             // wait for program to stop
-            loop {
-                if tracing_stop.load(Ordering::Relaxed) {
-                    break;
-                }
-
+            while !tracing_stop.load(Ordering::Relaxed) {
                 thread::sleep(Duration::from_secs(1));
             }
 
             let mem_counters = get_map_result::<u32, io_counter>(
                 &prog.maps.agg_map,
                 Some(&|key, value| {
-                    let average = if value.count > 0 {
-                        value.total_duration / value.count
-                    } else {
-                        0
-                    };
-
                     trace!(
                         "got {} {} operations; average duration {}ns",
                         value.count,
                         if *key == 0 { "write" } else { "read" },
-                        average
+                        value.total_duration.checked_div(value.count).unwrap_or(0)
                     );
                 }),
             )
@@ -382,17 +369,13 @@ impl DefaultCollector {
             .into_iter()
             .map(|(devid, stats)| {
                 let total = stats.random + stats.sequential;
+                let name = self
+                    .partitions
+                    .iter()
+                    .find(|p| p.dev == devid)
+                    .map_or("unknown device".to_string(), |p| p.name.clone());
                 DiskStats {
-                    // search disk name by id
-                    name: self
-                        .partitions
-                        .iter()
-                        .filter(|x| x.dev == devid)
-                        .map(|p| p.name.clone())
-                        .collect::<Vec<String>>()
-                        .first()
-                        .unwrap_or(&"unknown device".to_string())
-                        .to_string(),
+                    name,
                     bytes: stats.bytes,
                     perc_random: stats.random * 100 / total,
                     perc_seq: stats.sequential * 100 / total,
