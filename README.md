@@ -35,7 +35,8 @@ Install build dependencies with:
 sudo apt-get update && sudo apt-get install -y python3-dev clang llvm-dev linux-tools-`uname -r` libbpf-dev make pkg-config
 ```
 
-Next we need to generate a `vmlinux.h` to compile eBPF programs.
+Next we need to generate a `vmlinux.h` to compile eBPF programs. (this can be also avoided by download a `vmlinux.h` from 
+[here](https://github.com/libbpf/vmlinux.h))
 ```sh
 bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
 ```
