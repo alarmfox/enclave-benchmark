@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
-    fs::{self, create_dir_all, DirEntry, File},
+    fs::{self, create_dir_all, File},
     io::{BufRead, BufReader, Write},
     mem::MaybeUninit,
     path::{Path, PathBuf},
@@ -15,28 +15,23 @@ use std::{
 };
 
 use duration_str::HumanFormat;
-use libbpf_rs::{
-    skel::{OpenSkel, Skel, SkelBuilder},
-    Map, MapCore, MapFlags,
-};
-use plain::{Error, Plain};
-use tracer::{
-    types::{disk_counter, io_counter},
-    TracerSkelBuilder,
-};
+use libbpf_rs::skel::{OpenSkel, Skel, SkelBuilder};
+use plain::Plain;
 use tracing::{error, trace, warn};
+use utils::{
+    extract_rapl_path, extract_sgx_counters_from_stderr, get_map_result, process_disk_stats,
+    process_mem_stats,
+};
 
-use crate::constants::{DEFAULT_PERF_EVENTS, ENERGY_CSV_HEADER, IO_CSV_HEADER};
-
-mod tracer {
-    include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/bpf/tracer.skel.rs"
-    ));
-}
-
-unsafe impl Plain for tracer::types::io_counter {}
-unsafe impl Plain for tracer::types::disk_counter {}
+use crate::{
+    constants::{DEFAULT_PERF_EVENTS, ENERGY_CSV_HEADER, IO_CSV_HEADER},
+    tracer::{
+        types::{disk_counter, io_counter},
+        TracerSkelBuilder,
+    },
+};
+unsafe impl Plain for io_counter {}
+unsafe impl Plain for disk_counter {}
 
 #[cfg(target_os = "linux")]
 #[derive(Clone)]
@@ -245,159 +240,32 @@ impl DefaultCollector {
         let stop = Arc::new(AtomicBool::new(false));
         let pid = child.id();
 
-        let me = self.clone();
-        let energy_stop = stop.clone();
-        let energy_handle = thread::spawn(move || me.monitor_energy_consumption(&energy_stop));
+        let energy_handle = {
+            let me = self.clone();
+            let energy_stop = stop.clone();
+            thread::spawn(move || me.monitor_energy_consumption(&energy_stop))
+        };
 
-        let tracing_stop = stop.clone();
-        let me = self.clone();
+        let tracing_handle = {
+            let me = self.clone();
+            let tracing_stop = stop.clone();
+            thread::spawn(move || me.trace_program(pid, tracing_stop))
+        };
 
-        let tracing_handle = thread::spawn(move || {
-            let skel_builder = TracerSkelBuilder::default();
-            let mut open_object = MaybeUninit::uninit();
-            let open_skel = skel_builder
-                .open(&mut open_object)
-                .expect("cannot open ebpf program");
-            open_skel.maps.rodata_data.targ_pid = pid as i32;
-            trace!(
-                "attaching ebpf program on target process with pid {}",
-                pid as i32
-            );
-            let mut prog = open_skel.load().expect("cannot load ebpf program");
-            prog.attach().expect("cannot attach program");
-
-            // wait for program to stop
-            while !tracing_stop.load(Ordering::Relaxed) {
-                thread::sleep(Duration::from_secs(1));
-            }
-
-            let mem_counters = get_map_result::<u32, io_counter>(
-                &prog.maps.agg_map,
-                Some(&|key, value| {
-                    trace!(
-                        "got {} {} operations; average duration {}ns",
-                        value.count,
-                        if *key == 0 { "write" } else { "read" },
-                        value.total_duration.checked_div(value.count).unwrap_or(0)
-                    );
-                }),
-            )
-            .expect("cannot get read/write counters");
-
-            let disk_counters = get_map_result::<u32, disk_counter>(
-                &prog.maps.counters,
-                Some(&|key, value| {
-                    let total = value.sequential + value.random;
-
-                    let mut partition_name = String::from("unknown");
-                    for partition in &me.partitions {
-                        if partition.dev == *key {
-                            partition_name = partition.name.clone();
-                        }
-                    }
-
-                    trace!(
-                        "dev={} random={}% seq={}% total={} bytes={}",
-                        partition_name,
-                        value.random * 100 / total,
-                        value.sequential * 100 / total,
-                        total,
-                        value.bytes / 1024
-                    );
-                }),
-            )
-            .expect("cannot get read/write counters");
-            (mem_counters, disk_counters)
-        });
-
-        let wait_child_handle = thread::spawn(move || {
-            let mut sgx_counters: Option<SGXStats> = None;
-            let mut stdout = Vec::new();
-            let mut stderr = Vec::new();
-            match child.wait_with_output() {
-                Ok(output) => {
-                    if !output.status.success() {
-                        warn!(
-                            "child process exited with non-zero code {}",
-                            output
-                                .status
-                                .code()
-                                .map_or_else(|| "unknown".to_string(), |c| c.to_string())
-                        );
-                    }
-                    // capture the stderr and get metrics if on sgx
-                    if is_sgx {
-                        let mut counters = SGXStats::default();
-                        for line in output.stderr.lines().map_while(Result::ok) {
-                            // # of EENTERs:        139328
-                            // # of EEXITs:         139250
-                            // # of AEXs:           5377
-                            // # of sync signals:   72
-                            // # of async signals:  0
-                            if line.trim().starts_with("#") {
-                                let parts = line.as_str().split_whitespace().collect::<Vec<&str>>();
-                                // assert_eq!(parts.len(), 4, "Expected \" # of <metric>: <num>\"");
-
-                                match parts[2] {
-                                    "EENTERs:" => counters.eenter = parts[3].parse().unwrap(),
-                                    "EEXITs:" => counters.eexit = parts[3].parse().unwrap(),
-                                    "AEXs" => counters.aexit = parts[3].parse().unwrap(),
-                                    "sync" => counters.sync_signals = parts[4].parse().unwrap(),
-                                    "async" => counters.async_signals = parts[4].parse().unwrap(),
-                                    _ => {}
-                                }
-                            }
-                        }
-
-                        sgx_counters = Some(counters);
-                    }
-                    stderr = output.stderr;
-                    stdout = output.stdout;
-                }
-                Err(e) => error!("target program exited with error {e}"),
-            }
-            // signal other threads to stop
-            stop.store(true, std::sync::atomic::Ordering::Relaxed);
-            (stdout, stderr, sgx_counters)
-        });
+        let wait_child_handle = {
+            let me = self.clone();
+            let stop = stop.clone();
+            thread::spawn(move || me.wait_for_child(child, is_sgx, stop))
+        };
 
         let (mem_stats, disk_stats) = tracing_handle.join().unwrap();
         let (stdout, stderr, sgx_stats) = wait_child_handle.join().unwrap();
         let energy_stats = energy_handle.join().unwrap();
 
-        let disk_stats = disk_stats
-            .into_iter()
-            .map(|(devid, stats)| {
-                let total = stats.random + stats.sequential;
-                let name = self
-                    .partitions
-                    .iter()
-                    .find(|p| p.dev == devid)
-                    .map_or("unknown device".to_string(), |p| p.name.clone());
-                DiskStats {
-                    name,
-                    bytes: stats.bytes,
-                    perc_random: stats.random * 100 / total,
-                    perc_seq: stats.sequential * 100 / total,
-                }
-            })
-            .collect::<Vec<DiskStats>>();
+        let disk_stats = process_disk_stats(&self.partitions, disk_stats);
+        let (sys_write_count, sys_write_avg, sys_read_count, sys_read_avg) =
+            process_mem_stats(mem_stats);
 
-        let (mut sys_write_count, mut sys_write_avg) = (0, 0);
-        let (mut sys_read_count, mut sys_read_avg) = (0, 0);
-        for (op, stat) in mem_stats {
-            match op {
-                1 => {
-                    sys_read_count = stat.count;
-                    sys_read_avg = stat.total_duration.checked_div(stat.count).unwrap_or(0);
-                }
-                0 => {
-                    sys_write_count = stat.count;
-                    sys_write_avg = stat.total_duration.checked_div(stat.count).unwrap_or(0);
-                }
-                _ => panic!("unknown system call type expected 0 for READ and 1 for WRITE"),
-            }
-        }
         Metrics {
             stdout,
             stderr,
@@ -409,6 +277,97 @@ impl DefaultCollector {
             sys_read_count,
             sys_write_count,
         }
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn trace_program(
+        self: Arc<Self>,
+        pid: u32,
+        tracing_stop: Arc<AtomicBool>,
+    ) -> (Vec<(u32, io_counter)>, Vec<(u32, disk_counter)>) {
+        let skel_builder = TracerSkelBuilder::default();
+        let mut open_object = MaybeUninit::uninit();
+        let open_skel = skel_builder
+            .open(&mut open_object)
+            .expect("cannot open ebpf program");
+        open_skel.maps.rodata_data.targ_pid = pid as i32;
+        trace!(
+            "attaching ebpf program on target process with pid {}",
+            pid as i32
+        );
+        let mut prog = open_skel.load().expect("cannot load ebpf program");
+        prog.attach().expect("cannot attach program");
+
+        while !tracing_stop.load(Ordering::Relaxed) {
+            thread::sleep(Duration::from_secs(1));
+        }
+
+        let mem_counters = get_map_result::<u32, io_counter>(
+            &prog.maps.agg_map,
+            Some(&|key, value| {
+                trace!(
+                    "got {} {} operations; average duration {}ns",
+                    value.count,
+                    if *key == 0 { "write" } else { "read" },
+                    value.total_duration.checked_div(value.count).unwrap_or(0)
+                );
+            }),
+        );
+        let disk_counters = get_map_result::<u32, disk_counter>(
+            &prog.maps.counters,
+            Some(&|key, value| {
+                let total = value.sequential + value.random;
+
+                let mut partition_name = String::from("unknown");
+                for partition in &self.partitions {
+                    if partition.dev == *key {
+                        partition_name = partition.name.clone();
+                    }
+                }
+
+                trace!(
+                    "dev={} random={}% seq={}% total={} bytes={}",
+                    partition_name,
+                    value.random * 100 / total,
+                    value.sequential * 100 / total,
+                    total,
+                    value.bytes / 1024
+                );
+            }),
+        );
+        (mem_counters, disk_counters)
+    }
+
+    fn wait_for_child(
+        self: Arc<Self>,
+        child: Child,
+        is_sgx: bool,
+        stop: Arc<AtomicBool>,
+    ) -> (Vec<u8>, Vec<u8>, Option<SGXStats>) {
+        let mut sgx_counters: Option<SGXStats> = None;
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        match child.wait_with_output() {
+            Ok(output) => {
+                if !output.status.success() {
+                    warn!(
+                        "child process exited with non-zero code {}",
+                        output
+                            .status
+                            .code()
+                            .map_or_else(|| "unknown".to_string(), |c| c.to_string())
+                    );
+                }
+                if is_sgx {
+                    sgx_counters = extract_sgx_counters_from_stderr(&output.stderr);
+                }
+                stderr = output.stderr;
+                stdout = output.stdout;
+            }
+            Err(e) => error!("target program exited with error {e}"),
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        (stdout, stderr, sgx_counters)
     }
 
     #[tracing::instrument(level = "debug", skip(self))]
@@ -441,7 +400,7 @@ impl DefaultCollector {
                     n => warn!(
                         "pre exec command {:?} exited with status {}",
                         n,
-                        cmd.to_str().unwrap()
+                        cmd.to_string_lossy()
                     ),
                 };
             }
@@ -462,56 +421,13 @@ impl DefaultCollector {
                     n => warn!(
                         "post exec command {:?} exited with status {}",
                         n,
-                        cmd.to_str().unwrap()
+                        cmd.to_string_lossy()
                     ),
                 };
             }
         }
         Ok(())
     }
-}
-
-fn extract_rapl_path(entry: &DirEntry) -> Option<(String, PathBuf)> {
-    if entry
-        .file_name()
-        .to_string_lossy()
-        .starts_with("intel-rapl:")
-        && entry.path().is_dir()
-    {
-        let component = fs::read_to_string(entry.path().join("name"))
-            .unwrap()
-            .trim()
-            .to_owned();
-        let energy_uj_path = entry.path().join("energy_uj");
-        Some((component, energy_uj_path))
-    } else {
-        None
-    }
-}
-
-#[allow(clippy::type_complexity)]
-fn get_map_result<K: Plain + Clone, T: Plain + Default>(
-    map: &Map,
-    cb: Option<&dyn Fn(&K, &T)>,
-) -> Result<Vec<(K, T)>, Error> {
-    let mut result = Vec::new();
-    for key in map.keys() {
-        let value = map
-            .lookup(&key, MapFlags::ANY)
-            .expect("cannot read from aggregated map");
-
-        if let Some(bytes) = value {
-            let mut value = T::default();
-            let key = K::from_bytes(&key).expect("cannot convert map key");
-            plain::copy_from_bytes(&mut value, &bytes)?;
-
-            if let Some(cb) = cb {
-                cb(key, &value);
-            }
-            result.push((key.clone(), value));
-        }
-    }
-    Ok(result)
 }
 
 impl Debug for DefaultCollector {
@@ -575,6 +491,125 @@ impl Partition {
             }
         }
         partitions
+    }
+}
+
+mod utils {
+    use std::{
+        fs::{self, DirEntry},
+        io::BufRead,
+        path::PathBuf,
+    };
+
+    use libbpf_rs::{Map, MapCore, MapFlags};
+    use plain::Plain;
+
+    use crate::{
+        collector::{DiskStats, Partition, SGXStats},
+        tracer::types::{disk_counter, io_counter},
+    };
+
+    pub fn extract_sgx_counters_from_stderr(stderr: &[u8]) -> Option<SGXStats> {
+        let mut counters = SGXStats::default();
+        for line in stderr.lines().map_while(Result::ok) {
+            if line.trim().starts_with("#") {
+                let parts = line.as_str().split_whitespace().collect::<Vec<&str>>();
+                match parts[2] {
+                    "EENTERs:" => counters.eenter = parts[3].parse().unwrap(),
+                    "EEXITs:" => counters.eexit = parts[3].parse().unwrap(),
+                    "AEXs" => counters.aexit = parts[3].parse().unwrap(),
+                    "sync" => counters.sync_signals = parts[4].parse().unwrap(),
+                    "async" => counters.async_signals = parts[4].parse().unwrap(),
+                    _ => {}
+                }
+            }
+        }
+        Some(counters)
+    }
+
+    pub fn process_disk_stats(
+        partitions: &[Partition],
+        disk_stats: Vec<(u32, disk_counter)>,
+    ) -> Vec<DiskStats> {
+        disk_stats
+            .into_iter()
+            .map(|(devid, stats)| {
+                let total = stats.random + stats.sequential;
+                let name = partitions
+                    .iter()
+                    .find(|p| p.dev == devid)
+                    .map_or("unknown device".to_string(), |p| p.name.clone());
+                DiskStats {
+                    name,
+                    bytes: stats.bytes,
+                    perc_random: stats.random * 100 / total,
+                    perc_seq: stats.sequential * 100 / total,
+                }
+            })
+            .collect::<Vec<DiskStats>>()
+    }
+
+    pub fn process_mem_stats(mem_stats: Vec<(u32, io_counter)>) -> (u64, u64, u64, u64) {
+        let (mut sys_write_count, mut sys_write_avg) = (0, 0);
+        let (mut sys_read_count, mut sys_read_avg) = (0, 0);
+        for (op, stat) in mem_stats {
+            match op {
+                1 => {
+                    sys_read_count = stat.count;
+                    sys_read_avg = stat.total_duration.checked_div(stat.count).unwrap_or(0);
+                }
+                0 => {
+                    sys_write_count = stat.count;
+                    sys_write_avg = stat.total_duration.checked_div(stat.count).unwrap_or(0);
+                }
+                _ => panic!("unknown system call type expected 0 for READ and 1 for WRITE"),
+            }
+        }
+        (sys_write_count, sys_write_avg, sys_read_count, sys_read_avg)
+    }
+
+    pub fn extract_rapl_path(entry: &DirEntry) -> Option<(String, PathBuf)> {
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with("intel-rapl:")
+            && entry.path().is_dir()
+        {
+            let component = fs::read_to_string(entry.path().join("name"))
+                .unwrap()
+                .trim()
+                .to_owned();
+            let energy_uj_path = entry.path().join("energy_uj");
+            Some((component, energy_uj_path))
+        } else {
+            None
+        }
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub fn get_map_result<K, T>(map: &Map, cb: Option<&dyn Fn(&K, &T)>) -> Vec<(K, T)>
+    where
+        K: Plain + Clone,
+        T: Plain + Default,
+    {
+        let mut result = Vec::new();
+        for key in map.keys() {
+            let value = map
+                .lookup(&key, MapFlags::ANY)
+                .expect("cannot read from aggregated map");
+
+            if let Some(bytes) = value {
+                let mut value = T::default();
+                let key = K::from_bytes(&key).expect("cannot convert map key");
+                plain::copy_from_bytes(&mut value, &bytes).expect("cannot get key");
+
+                if let Some(cb) = cb {
+                    cb(key, &value);
+                }
+                result.push((key.clone(), value));
+            }
+        }
+        result
     }
 }
 

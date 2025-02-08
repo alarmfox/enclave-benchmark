@@ -17,6 +17,13 @@ mod common;
 mod constants;
 mod profiler;
 
+mod tracer {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/bpf/tracer.skel.rs"
+    ));
+}
+
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
