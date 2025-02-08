@@ -1,7 +1,6 @@
 cffi==1.17.1
 click==8.1.8
 cryptography==44.0.0
-graminelibos===1.8post-UNRELEASED
 Jinja2==3.1.5
 MarkupSafe==3.0.2
 pycparser==2.22

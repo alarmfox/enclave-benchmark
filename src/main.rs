@@ -25,16 +25,21 @@ mod tracer {
 }
 
 #[derive(Parser)]
-#[command(version, about, long_about = None)]
+#[command(version = "dev", about = "A cli app to run benchmarks for Gramine application", long_about = None)]
+#[command(name = "enclave-benchmark")]
 struct Cli {
     /// Turn debugging information on
     #[arg(short, action = clap::ArgAction::Count)]
     verbose: u8,
 
-    #[arg(short, long, default_value = "workload.toml")]
-    config_path: PathBuf,
+    #[arg(short, long, help = "Path to configuration file")]
+    config: PathBuf,
 
-    #[arg(long, default_value = "false")]
+    #[arg(
+        long,
+        default_value = "false",
+        help = "Remove previous results directory (if exists)"
+    )]
     force: bool,
 }
 
@@ -56,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let mut config = String::new();
     tracing_subscriber::fmt().with_max_level(log_level).init();
-    let n = File::open(cli.config_path)?.read_to_string(&mut config)?;
+    let n = File::open(cli.config)?.read_to_string(&mut config)?;
     let config = toml::from_str::<Config>(&config[..n])?;
 
     if cli.force {
