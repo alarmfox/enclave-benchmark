@@ -242,14 +242,11 @@ impl DefaultCollector {
         }
 
         measures
-
-        // write measures on file
     }
 
     #[tracing::instrument(level = "trace", skip(self, child))]
     fn collect_metrics(self: Arc<Self>, child: Child, is_sgx: bool) -> Metrics {
-        let stop = AtomicBool::new(false);
-        let stop = Arc::new(stop);
+        let stop = Arc::new(AtomicBool::new(false));
         let pid = child.id();
 
         let me = self.clone();
@@ -403,21 +400,21 @@ impl DefaultCollector {
             })
             .collect::<Vec<DiskStats>>();
 
-        let zero_value = (0, io_counter::default());
-        let (_, counter) = mem_stats.first().unwrap_or(&zero_value);
-        let sys_write_count = counter.count;
-        let sys_write_avg = if counter.count > 0 {
-            counter.total_duration / counter.count
-        } else {
-            0
-        };
-        let (_, counter) = mem_stats.get(1).unwrap_or(&zero_value);
-        let sys_read_count = counter.count;
-        let sys_read_avg = if counter.count > 0 {
-            counter.total_duration / counter.count
-        } else {
-            0
-        };
+        let (mut sys_write_count, mut sys_write_avg) = (0, 0);
+        let (mut sys_read_count, mut sys_read_avg) = (0, 0);
+        for (op, stat) in mem_stats {
+            match op {
+                1 => {
+                    sys_read_count = stat.count;
+                    sys_read_avg = stat.total_duration.checked_div(stat.count).unwrap_or(0);
+                }
+                0 => {
+                    sys_write_count = stat.count;
+                    sys_write_avg = stat.total_duration.checked_div(stat.count).unwrap_or(0);
+                }
+                _ => panic!("unknown system call type expected 0 for READ and 1 for WRITE"),
+            }
+        }
         Metrics {
             stdout,
             stderr,
@@ -494,8 +491,7 @@ impl DefaultCollector {
 fn extract_rapl_path(entry: &DirEntry) -> Option<(String, PathBuf)> {
     if entry
         .file_name()
-        .to_str()
-        .unwrap()
+        .to_string_lossy()
         .starts_with("intel-rapl:")
         && entry.path().is_dir()
     {
