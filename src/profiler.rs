@@ -107,7 +107,14 @@ impl Profiler {
             let sign_with_local_key = gramine.getattr("sign_with_local_key")?;
 
             let args = [
-                ("arch_libdir", "/lib/x86_64-linux-gnu/"),
+                (
+                    "arch_libdir",
+                    if cfg!(target_env = "musl") {
+                        "/lib"
+                    } else {
+                        "/lib/x86_64-linux-gnu/"
+                    },
+                ),
                 ("executable", executable.to_str().unwrap()),
                 ("enclave_size", enclave_size),
                 ("num_threads", &num_threads.to_string()),
