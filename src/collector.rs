@@ -18,7 +18,7 @@ use std::{
 use duration_str::HumanFormat;
 use libbpf_rs::skel::{OpenSkel, Skel, SkelBuilder};
 use plain::Plain;
-use tracing::{error, trace, warn};
+use tracing::{debug, error, trace, warn};
 use utils::{
     extract_rapl_path, extract_sgx_counters_from_stderr, get_map_result, process_disk_stats,
     process_mem_stats,
@@ -133,7 +133,7 @@ impl DefaultCollector {
         }
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
+    #[tracing::instrument(level = "trace", skip(self), err)]
     fn run_experiment(
         self: Arc<Self>,
         program: &PathBuf,
@@ -144,7 +144,7 @@ impl DefaultCollector {
 
         // skip sgx to speed development on non sgx machine
         if is_sgx && env::var("EB_SKIP_SGX").is_ok_and(|v| v == "1") {
-            warn!("EB_SKIP_SGX is set; skipping SGX execution");
+            debug!("EB_SKIP_SGX is set; skipping SGX execution");
             return Ok(());
         }
 
@@ -366,8 +366,8 @@ impl DefaultCollector {
                 trace!(
                     "dev={} random={}% seq={}% total={} bytes={}",
                     partition_name,
-                    value.random * 100 / total,
-                    value.sequential * 100 / total,
+                    (value.random * 100).checked_div(total).unwrap_or(0),
+                    (value.sequential * 100).checked_div(total).unwrap_or(0),
                     total,
                     value.bytes / 1024
                 );
@@ -408,7 +408,7 @@ impl DefaultCollector {
         (stdout, stderr, sgx_counters)
     }
 
-    #[tracing::instrument(level = "debug", skip(self))]
+    #[tracing::instrument(level = "debug", skip(self), err)]
     #[allow(clippy::too_many_arguments)]
     pub fn attach(
         self: Arc<Self>,
@@ -580,8 +580,8 @@ mod utils {
                 DiskStats {
                     name,
                     bytes: stats.bytes,
-                    perc_random: stats.random * 100 / total,
-                    perc_seq: stats.sequential * 100 / total,
+                    perc_random: (stats.random * 100).checked_div(total).unwrap_or(0),
+                    perc_seq: (stats.sequential * 100).checked_div(total).unwrap_or(0),
                 }
             })
             .collect::<Vec<DiskStats>>()

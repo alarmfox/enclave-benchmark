@@ -68,7 +68,7 @@ impl Profiler {
         })
     }
 
-    #[tracing::instrument(level = "debug", skip(self), ret)]
+    #[tracing::instrument(level = "debug", skip(self), err)]
     fn build_and_sign_enclave(
         &self,
         executable: &PathBuf,
@@ -240,7 +240,7 @@ impl Profiler {
         Ok((args.remove(0), args.remove(0), args.remove(0)))
     }
 
-    #[tracing::instrument(skip(self), level = "info", ret)]
+    #[tracing::instrument(skip(self), level = "info", err)]
     pub fn profile(&self, task: Task) -> Result<(), Box<dyn std::error::Error>> {
         let program_name = task.executable.file_name().unwrap().to_str().unwrap();
         let task_path = self.output_directory.join(program_name);
