@@ -4,6 +4,7 @@ TEE (SGX) using Gramine and bare metal.
 
 Full documentation is available [here](https://alarmfox.github.io/enclave-benchmark/).
 
+
 ## Quick start
 
 **Note**: this project needs Gramine to be compiled with `debug` or `debugoptimized` options.
