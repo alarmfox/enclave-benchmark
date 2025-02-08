@@ -19,23 +19,24 @@ meson setup build/ \
 For more information, refer to [Build Gramine from source](https://gramine.readthedocs.io/en/stable/devel/building.html).
 
 ### Building [Ubuntu 24.04-only]
-First you will need to install a [Rust toolchain](https://rustup.rs/). Usually this can be done with:
+First you will need to install a [Rust toolchain](https://rustup.rs/). Usually this can be done running the following command 
+and following the instructions:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
 This projects uses [Gramine Python API](https://gramine.readthedocs.io/en/stable/python/api.html) (which needs Python `<3.13`) 
-with [PyO3](https://github.com/PyO3/pyo3) and needs `python3-dev[evel]` package. 
+with [PyO3](https://github.com/PyO3/pyo3) and needs `python3-dev` package. 
 
 Install build dependencies with:
 ```sh
-> sudo apt-get update && sudo apt-get install -y python3-dev clang llvm-dev linux-tools-`uname -r` libbpf-dev
+sudo apt-get update && sudo apt-get install -y python3-dev clang llvm-dev linux-tools-`uname -r` libbpf-dev make pkg-config
 ```
 
 Next we need to generate a `vmlinux.h` to compile eBPF programs.
 ```sh
-bpftool btf dump file /sys/kernel/btf/vmlinux format c > rc/bpf/vmlinux.h
+bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
 ```
 
 Now we run the build command (remove --release to make a fast but unoptimized build):
