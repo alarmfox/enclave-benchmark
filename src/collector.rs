@@ -74,6 +74,7 @@ struct Metrics {
     energy_stats: HashMap<String, Vec<String>>,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
+    perf_output: Vec<u8>,
     sys_write_count: u64,
     sys_write_avg: u64,
     sys_read_count: u64,
@@ -148,21 +149,10 @@ impl DefaultCollector {
 
         match cmd {
             Ok(child) => {
-                Command::new("perf")
-                    .arg("stat")
-                    .arg("--field-separator")
-                    .arg(",")
-                    .arg("--event")
-                    .arg(self.perf_events.join(","))
-                    .arg("--output")
-                    .arg(experiment_directory.join("perf.csv"))
-                    .arg("--pid")
-                    .arg(child.id().to_string())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .spawn()?;
-
                 let metrics = self.collect_metrics(child, is_sgx);
+
+                // save perf output
+                std::fs::write(experiment_directory.join("perf.csv"), metrics.perf_output).unwrap();
 
                 // write metrics to files
                 // save stdout stderr
@@ -240,6 +230,11 @@ impl DefaultCollector {
         let stop = Arc::new(AtomicBool::new(false));
         let pid = child.id();
 
+        let perf_handle = {
+            let me = self.clone();
+            thread::spawn(move || me.run_perf(pid))
+        };
+
         let energy_handle = {
             let me = self.clone();
             let energy_stop = stop.clone();
@@ -261,6 +256,7 @@ impl DefaultCollector {
         let (mem_stats, disk_stats) = tracing_handle.join().unwrap();
         let (stdout, stderr, sgx_stats) = wait_child_handle.join().unwrap();
         let energy_stats = energy_handle.join().unwrap();
+        let perf_output = perf_handle.join().unwrap();
 
         let disk_stats = process_disk_stats(&self.partitions, disk_stats);
         let (sys_write_count, sys_write_avg, sys_read_count, sys_read_avg) =
@@ -269,6 +265,7 @@ impl DefaultCollector {
         Metrics {
             stdout,
             stderr,
+            perf_output,
             energy_stats,
             disk_stats,
             sgx_stats,
@@ -279,9 +276,43 @@ impl DefaultCollector {
         }
     }
 
+    fn run_perf(&self, pid: u32) -> Vec<u8> {
+        let mut perf_output = Vec::new();
+        let mut perf_cmd = Command::new("perf");
+        perf_cmd
+            .arg("stat")
+            .arg("--field-separator")
+            .arg(",")
+            .arg("--event")
+            .arg(self.perf_events.join(","))
+            .arg("--pid")
+            .arg(pid.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+
+        match perf_cmd.output() {
+            Ok(output) => {
+                if !output.status.success() {
+                    error!(
+                        "perf process exited with non-zero code {}: {}",
+                        output
+                            .status
+                            .code()
+                            .map_or("unknown".to_string(), |c| c.to_string()),
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+                perf_output = output.stderr;
+            }
+            Err(e) => error!("perf process error {e}"),
+        };
+
+        perf_output
+    }
+
     #[allow(clippy::type_complexity)]
     fn trace_program(
-        self: Arc<Self>,
+        &self,
         pid: u32,
         tracing_stop: Arc<AtomicBool>,
     ) -> (Vec<(u32, io_counter)>, Vec<(u32, disk_counter)>) {
@@ -318,12 +349,11 @@ impl DefaultCollector {
             Some(&|key, value| {
                 let total = value.sequential + value.random;
 
-                let mut partition_name = String::from("unknown");
-                for partition in &self.partitions {
-                    if partition.dev == *key {
-                        partition_name = partition.name.clone();
-                    }
-                }
+                let partition_name = &self
+                    .partitions
+                    .iter()
+                    .find(|p| p.dev == *key)
+                    .map_or("unknown", |p| &p.name);
 
                 trace!(
                     "dev={} random={}% seq={}% total={} bytes={}",
@@ -339,7 +369,7 @@ impl DefaultCollector {
     }
 
     fn wait_for_child(
-        self: Arc<Self>,
+        &self,
         child: Child,
         is_sgx: bool,
         stop: Arc<AtomicBool>,
@@ -355,7 +385,7 @@ impl DefaultCollector {
                         output
                             .status
                             .code()
-                            .map_or_else(|| "unknown".to_string(), |c| c.to_string())
+                            .map_or("unknown".to_string(), |c| c.to_string())
                     );
                 }
                 if is_sgx {

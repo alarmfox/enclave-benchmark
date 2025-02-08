@@ -8,5 +8,5 @@ debug = false
 
 [[tasks]]
 executable = "/bin/dd"
-args = ["if=/dev/zero", "of={{ output_directory }}/a.zero", "count=10000"]
+args = ["if=/dev/zero", "of={{ output_directory }}/a.zero", "count=1000000"]
 storage_type = ["encrypted", "tmpfs", "untrusted"]
