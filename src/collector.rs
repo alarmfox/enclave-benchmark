@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    env,
     fmt::Debug,
     fs::{self, create_dir_all, File},
     io::{BufRead, BufReader, Write},
@@ -140,6 +141,12 @@ impl DefaultCollector {
         experiment_directory: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let is_sgx = program.as_os_str() == "gramine-sgx";
+
+        // skip sgx to speed development on non sgx machine
+        if is_sgx && env::var("EB_SKIP_SGX").is_ok_and(|v| v == "1") {
+            warn!("EB_SKIP_SGX is set; skipping SGX execution");
+            return Ok(());
+        }
 
         let cmd = Command::new(program)
             .args(args)

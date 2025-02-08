@@ -140,6 +140,7 @@ int handle__block_rq_complete(void *args) {
     return 0;
 }
 
+#if EB_SKIP_SGX != 1
 SEC("kprobe/sgx_vma_access")
 int count_sgx_encl_page_alloc(struct pt_regs *ctx) {
     u32 key = 0;
@@ -152,5 +153,6 @@ int count_sgx_encl_page_alloc(struct pt_regs *ctx) {
 
     return 0;
 }
+#endif
 
 char LICENSE[] SEC("license") = "GPL";
