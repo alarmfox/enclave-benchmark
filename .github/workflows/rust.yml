@@ -92,6 +92,5 @@ jobs:
         docker run --privileged \
         -v $(pwd):/workspace/benchmark \
         -w /workspace/benchmark \
-        -e EB_SKIP_SGX=1 \
         gramine-profile \
-        sh -c "rm .cargo -rf; cargo test --verbose"
+        sh -c "rm .cargo -rf; cargo test --verbose -- --skip collector"
