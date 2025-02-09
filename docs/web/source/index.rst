@@ -6,7 +6,9 @@
 TEE benchmark documentation
 ===========================
 
-A CLI application to run benchmark and collect metrics in a TEE environment.
+A CLI application to run benchmarks and collect metrics to compare application
+performance when executed in an Intel-based TEE (SGX) using Gramine versus
+running on bare metal.
 
 .. note::
 
