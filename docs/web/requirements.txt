@@ -3,7 +3,6 @@ babel==2.17.0
 certifi==2025.1.31
 charset-normalizer==3.4.1
 docutils==0.21.2
-graminelibos===1.8post-UNRELEASED
 idna==3.10
 imagesize==1.4.1
 Jinja2==3.1.5

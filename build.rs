@@ -12,7 +12,7 @@ fn main() {
         env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set in build script"),
     );
 
-    // inject #define EB_SKIP_SGX = 1 in tracer.h if skip_sgx is true
+    // inject #define EB_SKIP_SGX in tracer.h if skip_sgx is true
     if skip_sgx {
         let header = fs::read_to_string(HEADER).expect("cannot find header file");
         let mut lines = header.lines().collect::<Vec<&str>>();
