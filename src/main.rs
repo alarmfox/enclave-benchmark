@@ -25,7 +25,7 @@ mod tracer {
 }
 
 #[derive(Parser)]
-#[command(version = "dev", about = "A cli app to run benchmarks for Gramine application", long_about = None)]
+#[command(version = env!("CARGO_PKG_VERSION"), about = "A cli app to run benchmarks for Gramine application", long_about = None)]
 #[command(name = "enclave-benchmark")]
 struct Cli {
     /// Turn debugging information on

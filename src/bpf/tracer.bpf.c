@@ -1,5 +1,5 @@
-/*Part of this program (the one that analyzes io patterns) is heavily taken from*/
-/*https://github.com/eunomia-bpf/bpf-developer-tutorial/tree/main/src/17-biopattern*/
+/* Part of this program (the one that analyzes disk patterns) is heavily taken from */
+/* https://github.com/eunomia-bpf/bpf-developer-tutorial/tree/main/src/17-biopattern*/
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
