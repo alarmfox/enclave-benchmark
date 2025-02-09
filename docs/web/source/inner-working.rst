@@ -1,7 +1,8 @@
 How does it work?
 =================
 
-For each task, the application builds a series of experiments based on `globals.num_threads`, `globals.enclave_size` and `task.storage` (for Gramine runs only).
+For each task, the application builds a series of experiments based on `globals.num_threads`,
+`globals.enclave_size` and `task.storage` (for Gramine runs only).
 
 The application launches the target program in a separated process and starts the 
 monitoring in 3 threads:
@@ -10,8 +11,8 @@ monitoring in 3 threads:
 - energy monitor: polls energy consumption;
 - performance counters: runs perf in a separated process;
 
-The application entrypoint is a `toml` file which contains a list of programs and general settings.
-For example, looks like:
+The application entrypoint is a `toml` file which contains a list of programs and general
+settings. For example, looks like:
 
 .. code:: toml
 
@@ -28,29 +29,33 @@ For example, looks like:
   args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "app", "output={{ output_directory }}"]
   storage_type = ["encrypted", "tmpfs", "untrusted"]
 
-The program will generate `len(<enclave_size>) x len(num_threads)` experiments. Each 
-experiment will be executed for `sample_size` times. For Gramine, the `storage_type` 
-factor is included. Gramine application will execute for
-`len(<enclave_size>) x len(num_threads) x len(storage_type)` times.
+The program will generate `len(<enclave_size>) x len(num_threads)` (2 x 3 = 6) 
+experiments. Each experiment will be executed for `sample_size` times. ForGramine,
+the `storage_type` factor is included. Gramine application will execute for
+`len(<enclave_size>) x len(num_threads) x len(storage_type)` (2 x 3 x 3 = 18) times.
 
-The `toml` file is dynamic. For example, if an application executes with different number of threads
-you can mark the parameter with the `{{ num_threads }}` placeholder. On each iteration it will be
-populated with an element from `globals.num_threads` (see `make` task in the example above).
-`{{ output_directory }}` is replaced each experiment with different paths from `storage_type`
-(non-gramine application always have a simple storage).
+The `toml` file is dynamic. For example, if an application executes with different 
+number of threads you can mark the parameter with the `{{ num_threads }}` placeholder.
+On each iteration it will be populated with an element from `globals.num_threads`
+(see `make` task in the example above). `{{ output_directory }}` is replaced each
+experiment with different paths from `storage_type` (non-gramine application always
+have a simple storage).
+
+.. index:: eBPF
 
 Low-level tracing
 -----------------
+
 Extra performance counters (like SGX or disk related metrics) are collected 
 leveraging the tracing system in the Linux kernel through **eBPF**. eBPF 
 needs to be enabled in the kernel with configuration (should be already enabled in common
 kernels) https://github.com/iovisor/bcc/blob/master/docs/kernel_config.md.
 
 .. tip::
- eBPF is technology in the Linux kernel that allows for the execution of 
- sandboxed programs within the kernel space. BPF programs runs in a JIT 
- runtime with no-heap and a very small stack. These programs are guaranteed 
- to not crash the kernel. More information can be found at https://docs.ebpf.io/.
+  eBPF is technology in the Linux kernel that allows for the execution of 
+  sandboxed programs within the kernel space. BPF programs runs in a JIT 
+  runtime with no-heap and a very small stack. These programs are guaranteed 
+  to not crash the kernel. More information can be found at https://docs.ebpf.io/.
 
 Basically eBPF prgrams are functions (like the one below) attached on specific
 events by the kernel. Debug events are already available in the classical tracing sytem 
@@ -98,7 +103,9 @@ random) and average duration of **read** and **write** and stores them in a file
 `io.csv`.
 
 For SGX functions, **kprobe** (https://docs.kernel.org/trace/kprobes.html) can be used to 
-trace functions (the list can be obtained by running `cat /sys/kernel/debug/tracing/available_filter_functions | grep sgx`) and can be inspected with the following program.
+trace functions (the list can be obtained by running 
+`cat /sys/kernel/debug/tracing/available_filter_functions | grep sgx`) and can be
+inspected with the following program.
 
 .. code:: c
 
@@ -137,6 +144,8 @@ are explained in https://gramine.readthedocs.io/en/stable/performance.html.
   # of async signals:  0
 
 
+.. index:: Perf
+
 Performance counters
 --------------------
 
@@ -169,6 +178,8 @@ list of parameters in ``src/constants.rs`` For example:
 
    [globals]
    extra_perf_events = ["cpu-cycles"]
+
+.. index:: RAPL
 
 Energy measurement
 ------------------
@@ -300,12 +311,12 @@ For each experiment, the application builds the following structure:
 
 The root directory is the `experiment_directory` which contains:
 
-- manifest.sgx: the built manifest which contains all trusted files hashes, mountpoints
+- **<prog>.manifest.sgx**: the built manifest which contains all trusted files hashes, mountpoints
   etc.;
-- <prog>.sig: which contains the enclave signature;
-- encrypted: is a directory mounted as encrypted to the Gramine application. Every file
+- **<prog>.sig**: contains the enclave signature;
+- **encrypted**: a directory mounted as encrypted to the Gramine application. Every file
   will be protected by an hardcoded key;
-- untrusted: is a directory mounted to the enclave as `sgx.allowed_files`
+- **untrusted**: a directory mounted to the enclave as `sgx.allowed_files`
 
 Untrusted and encrypted path directory will be used by the user through the 
 `{{ output_directory }}` variable in the input file.
