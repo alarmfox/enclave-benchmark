@@ -10,6 +10,34 @@ monitoring in 3 threads:
 - energy monitor: polls energy consumption;
 - performance counters: runs perf in a separated process;
 
+The application entrypoint is a `toml` file which contains a list of programs and general settings.
+For example, looks like:
+
+.. code:: toml
+
+  [globals]
+  sample_size = 4
+  enclave_size = ["256M", "512M"]
+  output_directory = "results"
+  num_threads = [1, 2, 8]
+  extra_perf_events = ["cpu-clock"]
+  debug = false
+
+  [[tasks]]
+  executable = "/usr/bin/make"
+  args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "app", "output={{ output_directory }}"]
+  storage_type = ["encrypted", "tmpfs", "untrusted"]
+
+The program will generate `len(<enclave_size>) x len(num_threads)` experiments. Each 
+experiment will be executed for `sample_size` times. For Gramine, the `storage_type` 
+factor is included. Gramine application will execute for
+`len(<enclave_size>) x len(num_threads) x len(storage_type)` times.
+
+The `toml` file is dynamic. For example, if an application executes with different number of threads
+you can mark the parameter with the `{{ num_threads }}` placeholder. On each iteration it will be
+populated with an element from `globals.num_threads` (see `make` task in the example above).
+`{{ output_directory }}` is replaced each experiment with different paths from `storage_type`
+(non-gramine application always have a simple storage).
 
 Low-level tracing
 -----------------

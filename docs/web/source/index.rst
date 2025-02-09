@@ -3,8 +3,8 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-TEE benchmark documentation
-===========================
+Introduction
+============
 
 A CLI application to run benchmarks and collect metrics to compare application
 performance when executed in an Intel-based TEE (SGX) using Gramine versus
@@ -19,9 +19,7 @@ running on bare metal.
    :caption: Contents:
 
    inner-working
-   requirements
    installation
-   usage/basic
-   usage/advanced
+   usage
    contributing
 

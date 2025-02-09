@@ -6,7 +6,7 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'TEE benchmark'
+project = 'Enclave benchmark'
 copyright = '2025, Giuseppe Capasso'
 author = 'Giuseppe Capasso'
 release = ''
