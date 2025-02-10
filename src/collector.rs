@@ -582,7 +582,7 @@ mod utils {
     use super::LowLevelSgxCounters;
 
     pub fn get_sgx_stats(stderr: &[u8], sgx_counters: LowLevelSgxCounters) -> SGXStats {
-        let mut sgx_stats = extract_sgx_counters_from_stderr(&stderr);
+        let mut sgx_stats = extract_sgx_counters_from_stderr(stderr);
 
         sgx_stats.counters = sgx_counters;
 
