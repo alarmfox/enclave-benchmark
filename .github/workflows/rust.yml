@@ -90,4 +90,4 @@ jobs:
         cargo clippy --all -- -D warnings
 
     - name: Run test
-      run: cargo test -- --skip collector --verbose
+      run: cargo test --verbose -- --skip collector
