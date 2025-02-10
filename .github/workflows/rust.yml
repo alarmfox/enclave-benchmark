@@ -14,7 +14,6 @@ on:
 
 jobs:
   main:
-    name: clippy and test
     runs-on: ubuntu:24.04
 
     steps:
