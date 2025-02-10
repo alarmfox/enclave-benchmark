@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, HashSet},
-    env,
     fmt::Debug,
     fs::{self, create_dir_all, File},
     io::{BufRead, BufReader, Write},
@@ -16,12 +15,14 @@ use std::{
 };
 
 use duration_str::HumanFormat;
-use libbpf_rs::skel::{OpenSkel, Skel, SkelBuilder};
+use libbpf_rs::{
+    skel::{OpenSkel, Skel, SkelBuilder},
+    MapCore, MapFlags,
+};
 use plain::Plain;
 use tracing::{debug, error, trace, warn};
 use utils::{
-    extract_rapl_path, extract_sgx_counters_from_stderr, get_map_result, process_disk_stats,
-    process_mem_stats,
+    extract_rapl_path, get_map_result, get_sgx_stats, process_disk_stats, process_mem_stats,
 };
 
 use crate::{
@@ -69,6 +70,16 @@ struct SGXStats {
     aexit: u64,
     sync_signals: u64,
     async_signals: u64,
+    counters: LowLevelSgxCounters,
+}
+
+#[repr(C)]
+#[derive(Default)]
+struct LowLevelSgxCounters {
+    encl_load_page: u64,
+    encl_wb: u64,
+    vma_access: u64,
+    vma_fault: u64,
 }
 
 struct Metrics {
@@ -143,7 +154,7 @@ impl DefaultCollector {
         let is_sgx = program.as_os_str() == "gramine-sgx";
 
         // skip sgx to speed development on non sgx machine
-        if is_sgx && env::var("EB_SKIP_SGX").is_ok_and(|v| v == "1") {
+        if is_sgx && option_env!("EB_SKIP_SGX").is_some_and(|v| v == "1") {
             debug!("EB_SKIP_SGX is set; skipping SGX execution");
             return Ok(());
         }
@@ -184,6 +195,15 @@ impl DefaultCollector {
                     writeln!(file, "sgx_aexit,#,{},,", sgx.aexit).unwrap();
                     writeln!(file, "sgx_async_signals,#,{},,", sgx.async_signals).unwrap();
                     writeln!(file, "sgx_sync_signals,#,{},,", sgx.sync_signals).unwrap();
+                    writeln!(
+                        file,
+                        "sgx_encl_load_page,#,{},,",
+                        sgx.counters.encl_load_page
+                    )
+                    .unwrap();
+                    writeln!(file, "sgx_encl_wb,#,{},,", sgx.counters.encl_wb).unwrap();
+                    writeln!(file, "sgx_vma_access,#,{},,", sgx.counters.vma_access).unwrap();
+                    writeln!(file, "sgx_vma_fault,#,{},,", sgx.counters.vma_fault).unwrap();
                 }
                 writeln!(file, "sys_read,#,{},,", metrics.sys_read_count).unwrap();
                 writeln!(file, "sys_read,ns,{},,", metrics.sys_read_avg).unwrap();
@@ -236,11 +256,11 @@ impl DefaultCollector {
         let wait_child_handle = {
             let me = self.clone();
             let stop = stop.clone();
-            thread::spawn(move || me.wait_for_child(child, is_sgx, stop))
+            thread::spawn(move || me.wait_for_child(child, stop))
         };
 
-        let (mem_stats, disk_stats) = tracing_handle.join().unwrap();
-        let (stdout, stderr, sgx_stats) = wait_child_handle.join().unwrap();
+        let (mem_stats, disk_stats, sgx_counters) = tracing_handle.join().unwrap();
+        let (stdout, stderr) = wait_child_handle.join().unwrap();
         let energy_stats = energy_handle.join().unwrap();
         let perf_output = perf_handle.join().unwrap();
 
@@ -248,13 +268,15 @@ impl DefaultCollector {
         let (sys_write_count, sys_write_avg, sys_read_count, sys_read_avg) =
             process_mem_stats(mem_stats);
 
+        let sgx_stats = get_sgx_stats(&stderr, sgx_counters);
+
         Metrics {
             stdout,
             stderr,
             perf_output,
             energy_stats,
             disk_stats,
-            sgx_stats,
+            sgx_stats: if is_sgx { Some(sgx_stats) } else { None },
             sys_read_avg,
             sys_write_avg,
             sys_read_count,
@@ -323,7 +345,11 @@ impl DefaultCollector {
         &self,
         pid: u32,
         tracing_stop: Arc<AtomicBool>,
-    ) -> (Vec<(u32, io_counter)>, Vec<(u32, disk_counter)>) {
+    ) -> (
+        Vec<(u32, io_counter)>,
+        Vec<(u32, disk_counter)>,
+        LowLevelSgxCounters,
+    ) {
         let skel_builder = TracerSkelBuilder::default();
         let mut open_object = MaybeUninit::uninit();
         let open_skel = skel_builder
@@ -373,16 +399,25 @@ impl DefaultCollector {
                 );
             }),
         );
-        (mem_counters, disk_counters)
+
+        let key_bytes = 0_i32.to_ne_bytes();
+        let sgx_counters = if let Some(val_bytes) = prog
+            .maps
+            .sgx_stats
+            .lookup(&key_bytes, MapFlags::ANY)
+            .unwrap()
+        {
+            // Safety: The size of LowLevelSGX is known; ensure that val_bytes has at least that many bytes.
+            let sgx: LowLevelSgxCounters =
+                unsafe { std::ptr::read_unaligned(val_bytes.as_ptr() as *const _) };
+            sgx
+        } else {
+            LowLevelSgxCounters::default()
+        };
+        (mem_counters, disk_counters, sgx_counters)
     }
 
-    fn wait_for_child(
-        &self,
-        child: Child,
-        is_sgx: bool,
-        stop: Arc<AtomicBool>,
-    ) -> (Vec<u8>, Vec<u8>, Option<SGXStats>) {
-        let mut sgx_counters: Option<SGXStats> = None;
+    fn wait_for_child(&self, child: Child, stop: Arc<AtomicBool>) -> (Vec<u8>, Vec<u8>) {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
         match child.wait_with_output() {
@@ -396,16 +431,13 @@ impl DefaultCollector {
                             .map_or("unknown".to_string(), |c| c.to_string())
                     );
                 }
-                if is_sgx {
-                    sgx_counters = extract_sgx_counters_from_stderr(&output.stderr);
-                }
                 stderr = output.stderr;
                 stdout = output.stdout;
             }
             Err(e) => error!("target program exited with error {e}"),
         }
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
-        (stdout, stderr, sgx_counters)
+        (stdout, stderr)
     }
 
     #[tracing::instrument(level = "debug", skip(self), err)]
@@ -547,7 +579,17 @@ mod utils {
         tracer::types::{disk_counter, io_counter},
     };
 
-    pub fn extract_sgx_counters_from_stderr(stderr: &[u8]) -> Option<SGXStats> {
+    use super::LowLevelSgxCounters;
+
+    pub fn get_sgx_stats(stderr: &[u8], sgx_counters: LowLevelSgxCounters) -> SGXStats {
+        let mut sgx_stats = extract_sgx_counters_from_stderr(&stderr);
+
+        sgx_stats.counters = sgx_counters;
+
+        sgx_stats
+    }
+
+    fn extract_sgx_counters_from_stderr(stderr: &[u8]) -> SGXStats {
         let mut counters = SGXStats::default();
         for line in stderr.lines().map_while(Result::ok) {
             if line.trim().starts_with("#") {
@@ -562,7 +604,7 @@ mod utils {
                 }
             }
         }
-        Some(counters)
+        counters
     }
 
     pub fn process_disk_stats(

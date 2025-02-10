@@ -9,6 +9,13 @@
 
 const volatile pid_t targ_pid = 0;
 
+struct sgx_counters {
+    u64 encl_load_page;
+    u64 encl_wb;
+    u64 vma_access;
+    u64 vma_fault;
+};
+
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 64);
@@ -30,12 +37,14 @@ struct {
     __type(value, u64); 
 } start_ts_map SEC(".maps");
 
+#ifndef EB_SKIP_SGX
 struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 1);
-    __type(key, u32);   // We'll use key "0" for the counter.
-    __type(value, u64); // The counter value.
-} sgx_page_alloc_counter SEC(".maps");
+    __type(key, u32);   
+    __type(value, struct sgx_counters);
+} sgx_stats SEC(".maps");
+#endif
 
 static __always_inline int record_end_ts(int syscall) {
     u32 pid;
@@ -141,18 +150,39 @@ int handle__block_rq_complete(void *args) {
 }
 
 #ifndef EB_SKIP_SGX
-SEC("kprobe/sgx_vma_access")
-int count_sgx_encl_page_alloc(struct pt_regs *ctx) {
+// Helper: Increment the counter for a given key.
+static __always_inline int increment_sgx_counter(u32 field_offset) {
     u32 key = 0;
-    // Lookup the counter.
-    u64 *counter = bpf_map_lookup_elem(&sgx_page_alloc_counter, &key);
-    if (counter) {
-        // Atomically increment the counter.
-        __sync_fetch_and_add(counter, 1);
-    }
-
+    struct LowLevelSGX *stats = bpf_map_lookup_elem(&sgx_stats, &key);
+    
+    if (!stats)
+        return 0;
+    
+    u64 *counter = (u64 *)((void *)stats + field_offset);
+    __sync_fetch_and_add(counter, 1);
     return 0;
 }
+
+SEC("kprobe/sgx_vma_access")
+int count_sgx_vma_access (struct pt_regs *ctx) {
+    return increment_sgx_counter(offsetof(struct sgx_counters, vma_access));
+}
+
+SEC("kprobe/sgx_vma_fault")
+int count_sgx_vma_fault (struct pt_regs *ctx) {
+    return increment_sgx_counter(offsetof(struct sgx_counters, vma_fault));
+}
+
+SEC("kprobe/sgx_encl_load_page")
+int count_sgx_encl_load (struct pt_regs *ctx) {
+    return increment_sgx_counter(offsetof(struct sgx_counters, encl_load_page));
+}
+
+SEC("kprobe/__sgx_encl_ewb")
+int count_sgx_encl_ewb (struct pt_regs *ctx) {
+    return increment_sgx_counter(offsetof(struct sgx_counters, encl_wb));
+}
+
 #endif
 
 char LICENSE[] SEC("license") = "GPL";
