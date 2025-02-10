@@ -13,29 +13,70 @@ on:
       - ./.github/workflows/docs.yml
 
 jobs:
-  build:
-    name: build
-    runs-on: ubuntu-latest
+  main:
+    name: clippy and test
+    runs-on: ubuntu:24.04
 
     steps:
     - name: Check out code
       uses: actions/checkout@v4
     
-    - name: Setup host dependency
+    - uses: actions/cache@v4
+      id: cache
+      with:
+        path: |
+          /var/cache/apt/archives
+          /tmp/gramine-1.8/
+        key: ${{ runner.os }}-${{ hashFiles('dev/setup_host.sh') }}
+        restore-keys: |
+          ${{ runner.os }}-
+    
+    - name: Setup host 
+      if: steps.cache-docker-image.outputs.cache-hit != 'true'
       run: |
-        sudo apt-get update && sudo apt-get install -y \
-          libbpf1 \
-          clang \
-          llvm-dev \
-          libelf-dev \
-          linux-tools-common \
-          linux-tools-generic \
-          linux-tools-$(uname -r)
+        # install deps
+        sudo apt-get update && sudo apt-get install -y build-essential clang \
+        clang llvm-dev python3-dev libbpf-dev git clang autoconf bison gawk meson nasm \
+        pkg-config python3 python3-click python3-jinja2 python3-pyelftools python3-tomli \
+        python3-tomli-w python3-voluptuous wget cmake libprotobuf-c-dev protobuf-c-compiler \
+        protobuf-compiler python3-cryptography python3-pip python3-protobuf curl linux-tools-`uname -r`
 
-        bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
+        # install sgx core libraries
+        echo 'deb [signed-by=/etc/apt/keyrings/intel-sgx-keyring.asc arch=amd64] https://download.01.org/intel-sgx/sgx_repo/ubuntu noble main' | \
+        sudo tee /etc/apt/sources.list.d/intel-sgx.list  
 
-    - name: Check
-      run: cargo check --verbose
+        wget https://download.01.org/intel-sgx/sgx_repo/ubuntu/intel-sgx-deb.key
+        cat intel-sgx-deb.key| sudo tee /etc/apt/keyrings/intel-sgx-keyring.asc > /dev/null
+        
+        sudo apt-get update && sudo apt-get install -y libsgx-dcap-quote-verify-dev libsgx-epid libsgx-quote-ex libsgx-dcap-ql
+
+        # get gramine
+        curl -o /tmp/graminev1.8.tar.gz -fL https://github.com/gramineproject/gramine/archive/refs/tags/v1.8.tar.gz
+        tar xvf /tmp/gramine-1.8.tar.gz -C /tmp
+        cd /tmp/gramine-1.8/
+
+        # build and install gramine
+        meson setup build --buildtype=debugoptimized -Dsgx=enabled -Ddirect=disabled -Ddcap=disabled 
+        ninja -C build/
+        sudo ninja -C build/ install
+
+    - name: Setup host from cache
+      if: steps.cache-docker-image.outputs.cache-hit == 'true'
+      run: |
+        # install deps
+        sudo apt-get update && sudo apt-get install -y build-essential clang \
+        clang llvm-dev python3-dev libbpf-dev git clang autoconf bison gawk meson nasm \
+        pkg-config python3 python3-click python3-jinja2 python3-pyelftools python3-tomli \
+        python3-tomli-w python3-voluptuous wget cmake libprotobuf-c-dev protobuf-c-compiler \
+        protobuf-compiler python3-cryptography python3-pip python3-protobuf curl linux-tools-`uname -r` \
+        libsgx-dcap-quote-verify-dev libsgx-epid libsgx-quote-ex libsgx-dcap-ql
+
+        # install gramine
+        cd /tmp/gramine-1.8/
+        sudo ninja -C build/ install
+
+    - name: Create vmlinux.h 
+      run: bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
 
     - uses: Swatinem/rust-cache@v2
     - uses: dtolnay/rust-toolchain@master
@@ -49,48 +90,5 @@ jobs:
         cargo fmt --all -- --check
         cargo clippy --all -- -D warnings
 
-  test:
-    name: test
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Check out code
-      uses: actions/checkout@v4
-    
-    - name: Setup host dependency
-      run: |
-        sudo apt-get update && sudo apt-get install -y \
-          linux-tools-common \
-          linux-tools-generic \
-          linux-tools-$(uname -r)
-
-        bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
-
-    - uses: actions/cache@v4
-      id: cache-docker-image
-      with:
-        path: /tmp/.docker-cache
-        key: ${{ runner.os }}-${{ hashFiles('Dockerfile') }}
-        restore-keys: |
-          ${{ runner.os }}-
-
-    - name: Load Docker image from cache
-      if: steps.cache-docker-image.outputs.cache-hit == 'true'
-      run: |
-        docker load -i /tmp/.docker-cache/gramine-profile.tar
-
-    - name: Build Docker image
-      if: steps.cache-docker-image.outputs.cache-hit != 'true'
-      run: |
-        docker build -t gramine-profile .
-        mkdir -p /tmp/.docker-cache
-        docker save gramine-profile -o /tmp/.docker-cache/gramine-profile.tar
-
-    - name: Run tests
-      run: |
-        docker run --privileged \
-        -v $(pwd):/workspace/benchmark \
-        -w /workspace/benchmark \
-        gramine-profile \
-        sh -c "rm .cargo -rf; cargo test --verbose -- --skip collector"
+    - name: Run test
+      run: cargo test -- --skip collector --verbose

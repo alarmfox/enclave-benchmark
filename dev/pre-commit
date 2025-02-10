@@ -1,0 +1,38 @@
+#!/bin/sh
+
+set -eu
+
+# if ! codespell --skip **build --skip target --skip vmlinux.h --skip test/
+# then 
+#   echo "Check codespell"
+#   exit 1
+# fi
+
+modified_rust_files=$(git diff --cached --name-only | grep src/**/*.rs || true)
+
+if [ ! $modified_rust_files ]; then
+  echo "[Pre-commit] No rust files modified"
+  exit 0
+fi
+
+if ! cargo fmt -- --check
+then
+    echo "There are some code style issues."
+    echo "Run cargo fmt first."
+    exit 1
+fi
+
+if ! cargo clippy --all-targets -- -D warnings
+then
+    echo "There are some clippy issues."
+    exit 1
+fi
+
+if ! cargo test -- --skip collector
+then
+    echo "There are some test issues."
+    exit 1
+fi
+
+exit 0
+
