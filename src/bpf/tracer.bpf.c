@@ -9,12 +9,6 @@
 
 const volatile pid_t targ_pid = 0;
 
-struct sgx_counters {
-    u64 encl_load_page;
-    u64 encl_wb;
-    u64 vma_access;
-    u64 vma_fault;
-};
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -38,6 +32,14 @@ struct {
 } start_ts_map SEC(".maps");
 
 #ifndef EB_SKIP_SGX
+
+struct sgx_counters {
+    u64 encl_load_page;
+    u64 encl_wb;
+    u64 vma_access;
+    u64 vma_fault;
+};
+
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 1);
