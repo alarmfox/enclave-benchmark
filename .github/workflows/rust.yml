@@ -24,7 +24,7 @@ jobs:
       id: cache
       with:
         path: |
-          /tmp/apt-cache/archives
+          /tmp/apt-cache/archives/*.deb
           /tmp/gramine-1.8/
         key: ${{ runner.os }}-${{ hashFiles('dev/setup_host.sh') }}
         restore-keys: |
@@ -83,7 +83,7 @@ jobs:
 
         mkdir -p /tmp/apt-cache/archives
         sudo cp -r /var/cache/apt/archives/* /tmp/apt-cache/archives/ || true
-        sudo chmod -R u+r /tmp/apt-cache/archives
+        sudo chmod -R a+r /tmp/apt-cache/archives
 
     - name: Create vmlinux.h 
       run: bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
