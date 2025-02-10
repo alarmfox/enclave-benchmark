@@ -324,5 +324,3 @@ Untrusted and encrypted path directory will be used by the user through the
 Every iteration specified in `globals.sample_size` will have a dedicated directory 
 (called with the index of the iteration) in `<prog>-<threads>-<enclave-size>-<storage>`.
 
-
-
