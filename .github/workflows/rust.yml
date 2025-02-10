@@ -32,7 +32,7 @@ jobs:
           ${{ runner.os }}-
     
     - name: Setup host 
-      if: steps.cache-docker-image.outputs.cache-hit != 'true'
+      if: steps.cache.outputs.cache-hit != 'true'
       run: |
         # install deps
         sudo apt-get update && sudo apt-get install -y build-essential clang \
@@ -61,7 +61,7 @@ jobs:
         sudo ninja -C build/ install
 
     - name: Setup host from cache
-      if: steps.cache-docker-image.outputs.cache-hit == 'true'
+      if: steps.cache.outputs.cache-hit == 'true'
       run: |
         # install deps
         sudo apt-get update && sudo apt-get install -y build-essential clang \
