@@ -50,9 +50,9 @@ jobs:
         sudo apt-get update && sudo apt-get install -y libsgx-dcap-quote-verify-dev libsgx-epid libsgx-quote-ex libsgx-dcap-ql
 
         # get gramine
-        curl -o /tmp/graminev1.8.tar.gz -fL https://github.com/gramineproject/gramine/archive/refs/tags/v1.8.tar.gz
-        tar xvf /tmp/gramine-1.8.tar.gz -C /tmp
-        cd /tmp/gramine-1.8/
+        curl -o /tmp/gramine-v1.8.tar.gz -fL https://github.com/gramineproject/gramine/archive/refs/tags/v1.8.tar.gz
+        tar xvf /tmp/gramine-v1.8.tar.gz -C /tmp
+        cd /tmp/gramine-v1.8/
 
         # build and install gramine
         meson setup build --buildtype=debugoptimized -Dsgx=enabled -Ddirect=disabled -Ddcap=disabled 
