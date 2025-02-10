@@ -16,7 +16,6 @@ meson setup build/ \
   -Dsgx=enabled \
   -Ddcap=enabled
 ```
-For more information, refer to [Build Gramine from source](https://gramine.readthedocs.io/en/stable/devel/building.html).
 
 ### Building [Ubuntu 24.04-only]
 First, you will need to install a [Rust toolchain](https://rustup.rs/). Usually this can be done running the following command 
