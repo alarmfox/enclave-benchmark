@@ -30,7 +30,7 @@ apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install build-essent
   protobuf-compiler python3-cryptography python3-pip python3-protobuf curl linux-tools-`uname -r`
 
 # install intel sgx core libraries
-echo 'deb [signed-by=/etc/apt/keyrings/intel-sgx-keyring.asc arch=amd64] https://download.01.org/intel-sgx/sgx_repo/ubuntu noble main' | \
+echo "deb [signed-by=/etc/apt/keyrings/intel-sgx-keyring.asc arch=amd64] https://download.01.org/intel-sgx/sgx_repo/ubuntu $(lsb_release -sc) main" | \
 tee /etc/apt/sources.list.d/intel-sgx.list  
 
 sudo -u $USER_NAME wget https://download.01.org/intel-sgx/sgx_repo/ubuntu/intel-sgx-deb.key
@@ -42,9 +42,9 @@ apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
 sudo -u $USER_NAME rm intel-sgx-deb.key
 
 # get gramine
-sudo -u $USER_NAME git clone --depth=1 --branch v1.8 https://github.com/gramineproject/gramine.git /tmp/gramine-src
-cd /tmp/gramine-src
-sudo -u $USER_NAME git checkout v1.8 
+sudo -u $USER_NAME curl -o /tmp/v1.8.tar.gz -L https://github.com/gramineproject/gramine/archive/refs/tags/v1.8.tar.gz
+sudo -U $USER_NAME tar -xvf /tmp/v1.8.tar.gz -C /tmp
+cd /tmp/gramine-1.8/
 
 # build and install gramine
 sudo -u $USER_NAME meson setup build/ --buildtype=debugoptimized -Dsgx=enabled -Ddcap=enabled -Dlibc=glibc
