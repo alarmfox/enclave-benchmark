@@ -9,7 +9,6 @@
 
 const volatile pid_t targ_pid = 0;
 
-
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 64);
@@ -31,8 +30,6 @@ struct {
     __type(value, u64); 
 } start_ts_map SEC(".maps");
 
-#ifndef EB_SKIP_SGX
-
 struct sgx_counters {
     u64 encl_load_page;
     u64 encl_wb;
@@ -46,7 +43,7 @@ struct {
     __type(key, u32);   
     __type(value, struct sgx_counters);
 } sgx_stats SEC(".maps");
-#endif
+
 
 static __always_inline int record_end_ts(int syscall) {
     u32 pid;

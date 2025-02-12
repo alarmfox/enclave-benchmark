@@ -333,7 +333,8 @@ mod test {
 
     #[test]
     fn build_and_sign_enclave() {
-        let collector = collector::DefaultCollector::new(1, Duration::from_millis(100), None);
+        let collector =
+            collector::DefaultCollector::new(1, false, Duration::from_millis(100), None);
         let output_directory = TempDir::new().unwrap();
         let profiler = Profiler::new(
             vec![1],

@@ -1,8 +1,10 @@
+#![allow(dead_code)]
 use std::{
     collections::{HashMap, HashSet},
+    env,
     fmt::Debug,
     fs::{self, create_dir_all, File},
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader},
     mem::MaybeUninit,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
@@ -23,10 +25,11 @@ use plain::Plain;
 use tracing::{debug, error, trace, warn};
 use utils::{
     extract_rapl_path, get_map_result, get_sgx_stats, process_disk_stats, process_mem_stats,
+    run_command_with_args, save_energy_data, save_io_metrics, save_perf_output, save_stdout_stderr,
 };
 
 use crate::{
-    constants::{DEFAULT_PERF_EVENTS, ENERGY_CSV_HEADER, IO_CSV_HEADER},
+    constants::DEFAULT_PERF_EVENTS,
     tracer::{
         types::{disk_counter, io_counter},
         TracerSkelBuilder,
@@ -45,6 +48,7 @@ struct Partition {
 #[cfg(target_os = "linux")]
 pub struct DefaultCollector {
     sample_size: u32,
+    deep_trace: bool,
     perf_events: Vec<String>,
     rapl_paths: Vec<(String, PathBuf)>,
     energy_sample_interval: Duration,
@@ -82,6 +86,10 @@ struct LowLevelSgxCounters {
     vma_fault: u64,
 }
 
+struct DeepStats {
+    cpu_events: Vec<(u64, u64)>,
+}
+
 struct Metrics {
     energy_stats: HashMap<String, Vec<String>>,
     stdout: Vec<u8>,
@@ -92,18 +100,21 @@ struct Metrics {
     sys_read_count: u64,
     sys_read_avg: u64,
     disk_stats: Vec<DiskStats>,
-    sgx_stats: Option<SGXStats>,
+    sgx_stats: SGXStats,
+    deep_stats: Option<DeepStats>,
 }
 
 impl DefaultCollector {
     pub fn new(
         sample_size: u32,
+        deep_trace: bool,
         energy_sample_interval: Duration,
         extra_perf_events: Option<Vec<String>>,
     ) -> Self {
         Self {
             sample_size,
             partitions: Partition::load(),
+            deep_trace,
             energy_sample_interval,
             perf_events: {
                 let mut perf_events: HashSet<String> =
@@ -120,21 +131,16 @@ impl DefaultCollector {
 
                 if base_path.is_dir() {
                     for entry in base_path.read_dir().unwrap().flatten() {
-                        match extract_rapl_path(&entry) {
-                            //found a path like /sys/devices/virtual/powercap/intel-rapl/intel-rapl:<num>/
-                            Some(s) => {
-                                let domain_name = s.0.clone();
-                                rapl_paths.push(s);
-                                for subentry in entry.path().read_dir().unwrap().flatten() {
-                                    // /sys/devices/virtual/powercap/intel-rapl/intel-rapl:<num>/intel-rapl:<num>
-                                    if let Some(r) = extract_rapl_path(&subentry) {
-                                        let name = format!("{}-{}", domain_name, r.0);
-                                        rapl_paths.push((name, r.1));
-                                    };
+                        if let Some(s) = extract_rapl_path(&entry) {
+                            let domain_name = s.0.clone();
+                            rapl_paths.push(s);
+                            for subentry in entry.path().read_dir().unwrap().flatten() {
+                                if let Some(r) = extract_rapl_path(&subentry) {
+                                    let name = format!("{}-{}", domain_name, r.0);
+                                    rapl_paths.push((name, r.1));
                                 }
                             }
-                            None => continue,
-                        };
+                        }
                     }
                 } else {
                     warn!("system does not support RAPL interface; skipping");
@@ -150,11 +156,12 @@ impl DefaultCollector {
         program: &PathBuf,
         args: &[String],
         experiment_directory: &Path,
+        deep_trace: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let is_sgx = program.as_os_str() == "gramine-sgx";
 
         // skip sgx to speed development on non sgx machine
-        if is_sgx && option_env!("EB_SKIP_SGX").is_some_and(|v| v == "1") {
+        if is_sgx && env::var_os("EB_SKIP_SGX").is_some_and(|v| v == "1") {
             debug!("EB_SKIP_SGX is set; skipping SGX execution");
             return Ok(());
         }
@@ -167,72 +174,58 @@ impl DefaultCollector {
 
         match cmd {
             Ok(child) => {
-                let metrics = self.collect_metrics(child, is_sgx);
+                let metrics = self.collect_metrics(child, deep_trace);
 
-                // save perf output
-                std::fs::write(experiment_directory.join("perf.csv"), metrics.perf_output).unwrap();
-
-                // write metrics to files
-                // save stdout stderr
-                std::fs::write(experiment_directory.join("stderr"), metrics.stderr).unwrap();
-                std::fs::write(experiment_directory.join("stdout"), metrics.stdout).unwrap();
-
-                // save energy_data
-                for (filename, data) in metrics.energy_stats {
-                    let mut file =
-                        File::create(experiment_directory.join(format!("{}.csv", filename)))
-                            .unwrap();
-                    writeln!(file, "{}", ENERGY_CSV_HEADER).unwrap();
-                    file.write_all(data.join("\n").as_bytes()).unwrap();
-                }
-
-                // write i/o metrics
-                let mut file = File::create(experiment_directory.join("io.csv")).unwrap();
-                writeln!(file, "{}", IO_CSV_HEADER).unwrap();
-                if let Some(sgx) = metrics.sgx_stats {
-                    writeln!(file, "sgx_enter,#,{},,", sgx.eenter).unwrap();
-                    writeln!(file, "sgx_eexit,#,{},,", sgx.eexit).unwrap();
-                    writeln!(file, "sgx_aexit,#,{},,", sgx.aexit).unwrap();
-                    writeln!(file, "sgx_async_signals,#,{},,", sgx.async_signals).unwrap();
-                    writeln!(file, "sgx_sync_signals,#,{},,", sgx.sync_signals).unwrap();
-                    writeln!(
-                        file,
-                        "sgx_encl_load_page,#,{},,",
-                        sgx.counters.encl_load_page
-                    )
-                    .unwrap();
-                    writeln!(file, "sgx_encl_wb,#,{},,", sgx.counters.encl_wb).unwrap();
-                    writeln!(file, "sgx_vma_access,#,{},,", sgx.counters.vma_access).unwrap();
-                    writeln!(file, "sgx_vma_fault,#,{},,", sgx.counters.vma_fault).unwrap();
-                }
-                writeln!(file, "sys_read,#,{},,", metrics.sys_read_count).unwrap();
-                writeln!(file, "sys_read,ns,{},,", metrics.sys_read_avg).unwrap();
-                writeln!(file, "sys_write,#,{},,", metrics.sys_write_count).unwrap();
-                writeln!(file, "sys_write,ns,{},,", metrics.sys_write_avg).unwrap();
-
-                for stats in metrics.disk_stats {
-                    writeln!(file, "disk_write_seq,%,{},{}", stats.perc_seq, stats.name).unwrap();
-                    writeln!(
-                        file,
-                        "disk_write_rand,%,{},{}",
-                        stats.perc_random, stats.name
-                    )
-                    .unwrap();
-                    writeln!(
-                        file,
-                        "disk_tot_written_bytes,%,{},{}",
-                        stats.bytes, stats.name
-                    )
-                    .unwrap();
-                }
+                save_perf_output(experiment_directory, &metrics.perf_output)?;
+                save_stdout_stderr(experiment_directory, &metrics.stdout, &metrics.stderr)?;
+                save_energy_data(experiment_directory, metrics.energy_stats.clone())?;
+                save_io_metrics(experiment_directory, &metrics, is_sgx)?;
             }
             Err(e) => error!("cannot start child process {}", e),
         }
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip(self), err)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn attach(
+        self: Arc<Self>,
+        program: PathBuf,
+        args: Vec<String>,
+        pre_run_executable: Option<PathBuf>,
+        pre_run_args: Vec<String>,
+        post_run_executable: Option<PathBuf>,
+        post_run_args: Vec<String>,
+        output_directory: &Path,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let me = self.clone();
+        for n in 1..me.clone().sample_size + 1 {
+            let experiment_directory = output_directory.join(PathBuf::from(n.to_string()));
+            create_dir_all(&experiment_directory)?;
+
+            if let Some(cmd) = &pre_run_executable {
+                run_command_with_args(cmd, &pre_run_args)?;
+            }
+
+            me.clone()
+                .run_experiment(&program, &args, experiment_directory.as_path(), false)?;
+
+            if let Some(cmd) = &post_run_executable {
+                run_command_with_args(cmd, &post_run_args)?;
+            }
+        }
+
+        if self.deep_trace {
+            let experiment_directory = output_directory.join(PathBuf::from("deep-trace"));
+            create_dir_all(&experiment_directory)?;
+            me.clone()
+                .run_experiment(&program, &args, experiment_directory.as_path(), true)?;
+        }
+        Ok(())
+    }
+
     #[tracing::instrument(level = "trace", skip(self, child))]
-    fn collect_metrics(self: Arc<Self>, child: Child, is_sgx: bool) -> Metrics {
+    fn collect_metrics(self: Arc<Self>, child: Child, deep_trace: bool) -> Metrics {
         let stop = Arc::new(AtomicBool::new(false));
         let pid = child.id();
 
@@ -259,6 +252,13 @@ impl DefaultCollector {
             thread::spawn(move || me.wait_for_child(child, stop))
         };
 
+        let deep_stats_handle = if deep_trace {
+            let me = self.clone();
+            Some(thread::spawn(move || me.deep_trace(pid)))
+        } else {
+            None
+        };
+
         let (mem_stats, disk_stats, sgx_counters) = tracing_handle.join().unwrap();
         let (stdout, stderr) = wait_child_handle.join().unwrap();
         let energy_stats = energy_handle.join().unwrap();
@@ -268,6 +268,8 @@ impl DefaultCollector {
         let (sys_write_count, sys_write_avg, sys_read_count, sys_read_avg) =
             process_mem_stats(mem_stats);
 
+        let deep_stats = deep_stats_handle.map(|v| v.join().unwrap());
+
         let sgx_stats = get_sgx_stats(&stderr, sgx_counters);
 
         Metrics {
@@ -276,11 +278,12 @@ impl DefaultCollector {
             perf_output,
             energy_stats,
             disk_stats,
-            sgx_stats: if is_sgx { Some(sgx_stats) } else { None },
+            sgx_stats,
             sys_read_avg,
             sys_write_avg,
             sys_read_count,
             sys_write_count,
+            deep_stats,
         }
     }
 
@@ -440,63 +443,14 @@ impl DefaultCollector {
         (stdout, stderr)
     }
 
-    #[tracing::instrument(level = "debug", skip(self), err)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn attach(
-        self: Arc<Self>,
-        program: PathBuf,
-        args: Vec<String>,
-        pre_run_executable: Option<PathBuf>,
-        pre_run_args: Vec<String>,
-        post_run_executable: Option<PathBuf>,
-        post_run_args: Vec<String>,
-        output_directory: &Path,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let me = self.clone();
-        for n in 1..me.clone().sample_size + 1 {
-            let experiment_directory = output_directory.join(PathBuf::from(n.to_string()));
-            create_dir_all(&experiment_directory)?;
+    fn deep_trace(&self, _pid: u32) -> DeepStats {
+        //let skel_builder = tracer::
+        //let mut open_object = MaybeUninit::uninit();
+        //let open_skel = skel_builder
+        //    .open(&mut open_object)
+        //    .expect("cannot open ebpf program");
 
-            if let Some(cmd) = &pre_run_executable {
-                match Command::new(cmd)
-                    .args(pre_run_args.clone())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()?
-                    .code()
-                    .unwrap()
-                {
-                    0 => {}
-                    n => warn!(
-                        "pre exec command {:?} exited with status {}",
-                        n,
-                        cmd.to_string_lossy()
-                    ),
-                };
-            }
-
-            me.clone()
-                .run_experiment(&program, &args, experiment_directory.as_path())?;
-
-            if let Some(cmd) = &post_run_executable {
-                match Command::new(cmd)
-                    .args(post_run_args.clone())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()?
-                    .code()
-                    .unwrap()
-                {
-                    0 => {}
-                    n => warn!(
-                        "post exec command {:?} exited with status {}",
-                        n,
-                        cmd.to_string_lossy()
-                    ),
-                };
-            }
-        }
-        Ok(())
+        todo!()
     }
 }
 
@@ -566,20 +520,24 @@ impl Partition {
 
 mod utils {
     use std::{
-        fs::{self, DirEntry},
-        io::BufRead,
-        path::PathBuf,
+        collections::HashMap,
+        fs::{self, DirEntry, File},
+        io::{BufRead, Write},
+        path::{Path, PathBuf},
+        process::{Command, Stdio},
     };
 
     use libbpf_rs::{Map, MapCore, MapFlags};
     use plain::Plain;
+    use tracing::warn;
 
     use crate::{
         collector::{DiskStats, Partition, SGXStats},
+        constants::{ENERGY_CSV_HEADER, IO_CSV_HEADER},
         tracer::types::{disk_counter, io_counter},
     };
 
-    use super::LowLevelSgxCounters;
+    use super::{LowLevelSgxCounters, Metrics};
 
     pub fn get_sgx_stats(stderr: &[u8], sgx_counters: LowLevelSgxCounters) -> SGXStats {
         let mut sgx_stats = extract_sgx_counters_from_stderr(stderr);
@@ -691,6 +649,100 @@ mod utils {
         }
         result
     }
+
+    pub fn save_perf_output(
+        experiment_directory: &Path,
+        perf_output: &[u8],
+    ) -> Result<(), std::io::Error> {
+        std::fs::write(experiment_directory.join("perf.csv"), perf_output)
+    }
+
+    pub fn save_stdout_stderr(
+        experiment_directory: &Path,
+        stdout: &[u8],
+        stderr: &[u8],
+    ) -> Result<(), std::io::Error> {
+        std::fs::write(experiment_directory.join("stdout"), stdout)?;
+        std::fs::write(experiment_directory.join("stderr"), stderr)
+    }
+
+    pub fn save_energy_data(
+        experiment_directory: &Path,
+        energy_stats: HashMap<String, Vec<String>>,
+    ) -> Result<(), std::io::Error> {
+        for (filename, data) in energy_stats {
+            let mut file = File::create(experiment_directory.join(format!("{}.csv", filename)))?;
+            writeln!(file, "{}", ENERGY_CSV_HEADER)?;
+            file.write_all(data.join("\n").as_bytes())?;
+        }
+        Ok(())
+    }
+
+    pub fn save_io_metrics(
+        experiment_directory: &Path,
+        metrics: &Metrics,
+        is_sgx: bool,
+    ) -> Result<(), std::io::Error> {
+        let mut file = File::create(experiment_directory.join("io.csv"))?;
+        writeln!(file, "{}", IO_CSV_HEADER)?;
+        if is_sgx {
+            let sgx = &metrics.sgx_stats;
+            writeln!(file, "sgx_enter,#,{},,", sgx.eenter)?;
+            writeln!(file, "sgx_eexit,#,{},,", sgx.eexit)?;
+            writeln!(file, "sgx_aexit,#,{},,", sgx.aexit)?;
+            writeln!(file, "sgx_async_signals,#,{},,", sgx.async_signals)?;
+            writeln!(file, "sgx_sync_signals,#,{},,", sgx.sync_signals)?;
+            writeln!(
+                file,
+                "sgx_encl_load_page,#,{},,",
+                sgx.counters.encl_load_page
+            )?;
+            writeln!(file, "sgx_encl_wb,#,{},,", sgx.counters.encl_wb)?;
+            writeln!(file, "sgx_vma_access,#,{},,", sgx.counters.vma_access)?;
+            writeln!(file, "sgx_vma_fault,#,{},,", sgx.counters.vma_fault)?;
+        }
+        writeln!(file, "sys_read,#,{},,", metrics.sys_read_count)?;
+        writeln!(file, "sys_read,ns,{},,", metrics.sys_read_avg)?;
+        writeln!(file, "sys_write,#,{},,", metrics.sys_write_count)?;
+        writeln!(file, "sys_write,ns,{},,", metrics.sys_write_avg)?;
+
+        for stats in &metrics.disk_stats {
+            writeln!(file, "disk_write_seq,%,{},{}", stats.perc_seq, stats.name)?;
+            writeln!(
+                file,
+                "disk_write_rand,%,{},{}",
+                stats.perc_random, stats.name
+            )?;
+            writeln!(
+                file,
+                "disk_tot_written_bytes,%,{},{}",
+                stats.bytes, stats.name
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn run_command_with_args(
+        cmd: &PathBuf,
+        args: &[String],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(code) = Command::new(cmd)
+            .args(args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()?
+            .code()
+        {
+            if code != 0 {
+                warn!(
+                    "command {:?} exited with status {}",
+                    cmd.to_string_lossy(),
+                    code
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -705,7 +757,7 @@ mod test {
     fn test_collector() {
         let output_directory = TempDir::new().unwrap();
         let sample_size = 1;
-        let collector = DefaultCollector::new(sample_size, Duration::from_micros(500), None);
+        let collector = DefaultCollector::new(sample_size, false, Duration::from_micros(500), None);
         let collector = Arc::new(collector);
         collector
             .clone()

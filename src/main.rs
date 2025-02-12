@@ -79,6 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.globals.debug,
         DefaultCollector::new(
             config.globals.sample_size,
+            config.globals.deep_trace,
             config.globals.energy_sample_interval,
             config.globals.extra_perf_events,
         ),
@@ -104,6 +105,7 @@ mod test {
             num_threads = [1]
             output_directory = "/test"
             debug = true
+            deep_trace = true
             [[tasks]]
             executable = "/bin/ls"
             [[tasks]]

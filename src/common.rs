@@ -14,6 +14,9 @@ pub struct GlobalParams {
     #[serde(default)]
     pub debug: bool,
 
+    #[serde(default)]
+    pub deep_trace: bool,
+
     #[serde(
         deserialize_with = "deserialize_duration",
         default = "default_energy_sample_interval"
