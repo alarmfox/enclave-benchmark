@@ -5,10 +5,21 @@ using Gramine versus running on bare metal.
 Full documentation is available [here](https://alarmfox.github.io/enclave-benchmark/).
 
 ## Quick start [Ubuntu 22.04 or 24.04]
-If on Ubunt 22.04 or 24.04, the host can be setup by running the script in `dev/setup_host.sh` (run the 
-script from the root directory of the project)
+
+If on Ubuntu 22.04 or 24.04, the host can be setup by running the script in `dev/setup_host.sh` (run the 
+script from the root directory of the project).
+
+First, clone the repository:
 
 ```sh
+git clone https://github.com/alarmfox/enclave-benchmark.git
+cd enclave-benchmark
+```
+
+Make the script executable and run it.
+
+```sh
+sudo chmod +x ./dev/setup_host.sh
 sudo ./dev/setup_host.sh
 ```
 
