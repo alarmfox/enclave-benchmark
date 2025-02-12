@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::{env, fs};
 
 use libbpf_cargo::SkeletonBuilder;
@@ -7,7 +8,7 @@ const SRC: &str = "src/bpf/tracer.bpf.c";
 const HEADER: &str = "src/bpf/tracer.def.h";
 
 fn main() {
-    let skip_sgx = option_env!("EB_SKIP_SGX").is_some_and(|s| s == "1");
+    let skip_sgx = env::var_os("EB_SKIP_SGX").is_some_and(|s| s == "1");
     let manifest_dir = PathBuf::from(
         env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set in build script"),
     );
@@ -29,6 +30,22 @@ fn main() {
     )
     .expect("cannot write header file");
 
+    // bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
+    let vmlinux = Command::new("bpftool")
+        .args([
+            "btf",
+            "dump",
+            "file",
+            "/sys/kernel/btf/vmlinux",
+            "format",
+            "c",
+        ])
+        .stdout(Stdio::piped())
+        .output()
+        .expect("cannot generate vmlinux.h");
+
+    fs::write(manifest_dir.join("src/bpf/vmlinux.h"), vmlinux.stdout)
+        .expect("cannot write src/bpf/vmlinux.h");
     let out = manifest_dir.join("src").join("bpf").join("tracer.skel.rs");
 
     SkeletonBuilder::new()
