@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use std::{env, fs};
 
 use libbpf_cargo::SkeletonBuilder;
@@ -31,21 +30,7 @@ fn main() {
     .expect("cannot write header file");
 
     // bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
-    let vmlinux = Command::new("bpftool")
-        .args([
-            "btf",
-            "dump",
-            "file",
-            "/sys/kernel/btf/vmlinux",
-            "format",
-            "c",
-        ])
-        .stdout(Stdio::piped())
-        .output()
-        .expect("cannot generate vmlinux.h");
 
-    fs::write(manifest_dir.join("src/bpf/vmlinux.h"), vmlinux.stdout)
-        .expect("cannot write src/bpf/vmlinux.h");
     let out = manifest_dir.join("src").join("bpf").join("tracer.skel.rs");
 
     SkeletonBuilder::new()
