@@ -7,6 +7,7 @@
 # - install bpftool 
 # - builds and install Gramine from source 
 # - install Rust toolchain
+# - install vmlinux.h
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "This script must be run as root" >&2
@@ -52,4 +53,5 @@ sudo -u $USER_NAME ninja -C build/
 ninja -C build/ install
 
 # install rust toolchain
-su - $USER_NAME -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y"
+su $USER_NAME -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y"
+su $USER_NAME -c "bpftool btf dump file /sys/kernel/btf/vmlinux format c > /usr/local/include/vmlinux.h"
