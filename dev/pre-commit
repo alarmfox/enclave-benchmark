@@ -2,15 +2,9 @@
 
 set -eu
 
-# if ! codespell --skip **build --skip target --skip vmlinux.h --skip test/
-# then 
-#   echo "Check codespell"
-#   exit 1
-# fi
+modified_rust_files=$(git diff --cached --name-only | grep .rs || true)
 
-modified_rust_files=$(git diff --cached --name-only | grep src/**/*.rs || true)
-
-if [ ! $modified_rust_files ]; then
+if [ -z "$modified_rust_files" ]; then
   echo "[Pre-commit] No rust files modified"
   exit 0
 fi
