@@ -9,13 +9,8 @@
 # - install Rust toolchain
 # - install vmlinux.h
 
-if [ "$(id -u)" -ne 0 ]; then
-  echo "This script must be run as root" >&2
-  exit 1
-fi
-
-if [ ! $SUDO_USER ]; then 
-  echo "This script must be run with sudo not with root"
+if [ "$(id -u)" -ne 0 ] || [ ! $SUDO_USER ]; then
+  echo "This script must be run as root with sudo, not directly as root" >&2
   exit 1
 fi
 
@@ -44,7 +39,7 @@ sudo -u $USER_NAME rm intel-sgx-deb.key
 
 # get gramine
 sudo -u $USER_NAME curl -o /tmp/v1.8.tar.gz -L https://github.com/gramineproject/gramine/archive/refs/tags/v1.8.tar.gz
-sudo -U $USER_NAME tar -xvf /tmp/v1.8.tar.gz -C /tmp
+sudo -u $USER_NAME tar -xvf /tmp/v1.8.tar.gz -C /tmp
 cd /tmp/gramine-1.8/
 
 # build and install gramine
@@ -54,4 +49,6 @@ ninja -C build/ install
 
 # install rust toolchain
 su $USER_NAME -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y"
-su $USER_NAME -c "bpftool btf dump file /sys/kernel/btf/vmlinux format c > /usr/local/include/vmlinux.h"
+cd - 
+su $USER_NAME -c "bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h"
+
