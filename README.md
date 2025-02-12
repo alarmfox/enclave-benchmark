@@ -5,11 +5,14 @@ using Gramine versus running on bare metal.
 Full documentation is available [here](https://alarmfox.github.io/enclave-benchmark/).
 
 ## Quick start [Ubuntu 22.04 or 24.04]
-If on Ubunt 22.04 or 24.04, the host can be setup by running the script in `dev/setup_host.sh`
+If on Ubunt 22.04 or 24.04, the host can be setup by running the script in `dev/setup_host.sh` (run the 
+script from the root directory of the project)
 
 ```sh
 sudo ./dev/setup_host.sh
 ```
+
+For any custom setup, follow *bare metal* instructions [here](https://alarmfox.github.io/enclave-benchmark/installation.html#bare-metal).
 
 Now, you can run the build command (remove `--release` for a fast but unoptimized build):
 ```sh
