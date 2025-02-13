@@ -2,17 +2,17 @@ How does it work?
 =================
 
 For each task, the application builds a series of experiments based on `globals.num_threads`,
-`globals.enclave_size` and `task.storage` (for Gramine runs only).
+`globals.enclave_size`, and `task.storage` (for Gramine runs only).
 
-The application launches the target program in a separated process and starts the 
+The application launches the target program in a separate process and starts the 
 monitoring in 3 threads:
 
-- eBPF collector: runs ebpf programs and collects low level stats;
+- eBPF collector: runs eBPF programs and collects low-level stats;
 - energy monitor: polls energy consumption;
-- performance counters: runs perf in a separated process;
+- performance counters: runs perf in a separate process;
 
-The application entrypoint is a `toml` file which contains a list of programs and general
-settings. For example, looks like:
+The application entry point is a `toml` file that contains a list of programs and general
+settings. For example, it looks like:
 
 .. code:: toml
 
@@ -30,15 +30,15 @@ settings. For example, looks like:
   storage_type = ["encrypted", "tmpfs", "untrusted"]
 
 The program will generate `len(<enclave_size>) x len(num_threads)` (2 x 3 = 6) 
-experiments. Each experiment will be executed for `sample_size` times. ForGramine,
-the `storage_type` factor is included. Gramine application will execute for
+experiments. Each experiment will be executed `sample_size` times. For Gramine,
+the `storage_type` factor is included. The Gramine application will execute 
 `len(<enclave_size>) x len(num_threads) x len(storage_type)` (2 x 3 x 3 = 18) times.
 
-The `toml` file is dynamic. For example, if an application executes with different 
-number of threads you can mark the parameter with the `{{ num_threads }}` placeholder.
-On each iteration it will be populated with an element from `globals.num_threads`
-(see `make` task in the example above). `{{ output_directory }}` is replaced each
-experiment with different paths from `storage_type` (non-gramine application always
+The `toml` file is dynamic. For example, if an application executes with a different 
+number of threads, you can mark the parameter with the `{{ num_threads }}` placeholder.
+On each iteration, it will be populated with an element from `globals.num_threads`
+(see the `make` task in the example above). `{{ output_directory }}` is replaced in each
+experiment with different paths from `storage_type` (non-Gramine applications always
 have a simple storage).
 
 .. index:: eBPF
@@ -46,19 +46,19 @@ have a simple storage).
 Low-level tracing
 -----------------
 
-Extra performance counters (like SGX or disk related metrics) are collected 
+Extra performance counters (like SGX or disk-related metrics) are collected 
 leveraging the tracing system in the Linux kernel through **eBPF**. eBPF 
 needs to be enabled in the kernel with configuration (should be already enabled in common
 kernels) https://github.com/iovisor/bcc/blob/master/docs/kernel_config.md.
 
 .. tip::
-  eBPF is technology in the Linux kernel that allows for the execution of 
-  sandboxed programs within the kernel space. BPF programs runs in a JIT 
-  runtime with no-heap and a very small stack. These programs are guaranteed 
-  to not crash the kernel. More information can be found at https://docs.ebpf.io/.
+  eBPF is a technology in the Linux kernel that allows for the execution of 
+  sandboxed programs within the kernel space. BPF programs run in a JIT 
+  runtime with no heap and a very small stack. These programs are guaranteed 
+  not to crash the kernel. More information can be found at https://docs.ebpf.io/.
 
-Basically eBPF prgrams are functions (like the one below) attached on specific
-events by the kernel. Debug events are already available in the classical tracing sytem 
+Basically, eBPF programs are functions (like the one below) attached to specific
+events by the kernel. Debug events are already available in the classical tracing system 
 under `/sys/kernel/debug` (mounted as a `debugfs`) and need specific kernel 
 compilation flags to be available.
 
@@ -84,8 +84,8 @@ compilation flags to be available.
     return record_start_ts();
   }
 
-The function above is executed whenever a read system call is entered. Also eBPF 
-programs can store data in specific data-structures which are included in the `maps`
+The function above is executed whenever a read system call is entered. Also, eBPF 
+programs can store data in specific data structures which are included in the `maps`
 section of the final binary. For example, the function above is updating an entry in a 
 map which is declared like:
 
@@ -98,8 +98,8 @@ map which is declared like:
     __type(value, u64); 
   } start_ts_map SEC(".maps");
 
-The application uses eBPF to collects I/O metrics like disk access pattern (sequential vs 
-random) and average duration of **read** and **write** and stores them in a file called 
+The application uses eBPF to collect I/O metrics like disk access patterns (sequential vs 
+random) and the average duration of **read** and **write** operations and stores them in a file called 
 `io.csv`.
 
 For SGX functions, **kprobe** (https://docs.kernel.org/trace/kprobes.html) can be used to 
@@ -130,8 +130,8 @@ inspected with the following program.
 Gramine specific metrics
 ^^^^^^^^^^^^^^^^^^^^^^^^
 Using `sgx.profile.mode = "ocall_outer"` and `sgx.enabled_stats = true` in a Gramine 
-manifest enables extra performance counters which are printed to stderr. The applicatiion
-collects this metrics and includes in the `io.csv`. These metrics are reported below and 
+manifest enables extra performance counters which are printed to stderr. The application
+collects these metrics and includes them in the `io.csv`. These metrics are reported below and 
 are explained in https://gramine.readthedocs.io/en/stable/performance.html.
 
 .. code:: sh
@@ -149,7 +149,7 @@ are explained in https://gramine.readthedocs.io/en/stable/performance.html.
 Performance counters
 --------------------
 
-Default Linux performance counters are collected attaching a ``perf`` process 
+Default Linux performance counters are collected by attaching a ``perf`` process 
 to the application pid and saving the results in a ``csv`` file called ``perf.csv``.
 As trace events, performance counters need to be enabled in the kernel with specific 
 configuration:
@@ -159,19 +159,19 @@ configuration:
 - CONFIG_PROFILING
 
 .. tip::
- perf is a cli utility provided by the Linux kernel to collect  performance
+ perf is a CLI utility provided by the Linux kernel to collect performance
  counters and profile applications. A full list of available counters
- (which may change depending on platform) can be obtained by  running 
+ (which may change depending on the platform) can be obtained by running 
  ``perf list``. More info on https://perfwiki.github.io/main/
 
-The application spawns a perf process which is equivilent to running the following
+The application spawns a perf process which is equivalent to running the following
 command in the terminal:
 
 .. code:: sh
 
    perf stat --field-separator , -e <some-events> --pid <PID>
 
-Using the ``globals.extra_perf_events`` argument, it is possibile to extend the default 
+Using the ``globals.extra_perf_events`` argument, it is possible to extend the default 
 list of parameters in ``src/constants.rs`` For example:
 
 .. code:: toml
@@ -184,12 +184,12 @@ list of parameters in ``src/constants.rs`` For example:
 Energy measurement
 ------------------
 Energy measurement is performed through sampling using `globals.energy_sample_interval`.
-Energy data is collected leveraging the **Running Average Power Limit (RAPL)** tecnology
+Energy data is collected leveraging the **Running Average Power Limit (RAPL)** technology
 implemented in the Linux kernel.
 
 .. tip::
  The RAPL interface proposed by Intel is supported also by AMD. Linux divides the platform
- in **power domains** accessibile with a sysfs tree. More info on 
+ into **power domains** accessible with a sysfs tree. More info on 
  https://www.kernel.org/doc/html/next/power/powercap/powercap.html
 
 An Intel-RAPL hierarchy may look like this:
@@ -246,25 +246,25 @@ and *j* a subzone. In each node, a file `name` indicates the component name:
 - intel-rapl:0:2 -> dram
 
 The application reads the `energy_uj` file which contains an energy counter corresponding 
-to microjoule. 
+to microjoules. 
 
 The application creates a `csv` file in the form of `<package>-<component>.csv` with 2 
 columns:
 
-- timestamp: when the measurement occured in nanoseconds;
+- timestamp: when the measurement occurred in nanoseconds;
 - microjoule: value of the `energy_uj` file 
 
 Interfacing with Gramine
 ------------------------
-Gramine is a toolkit to convert already existing application in enclave using SGX. Every 
-Gramine application is a based on a `manifest` which contains the description of the
-application and facilitates trusted files, disk encryption and OS-separation. The 
-manifest is a TOML file that can be preprocess using Jinja2 templates.
+Gramine is a toolkit to convert already existing applications into enclaves using SGX. Every 
+Gramine application is based on a `manifest` which contains the description of the
+application and facilitates trusted files, disk encryption, and OS separation. The 
+manifest is a TOML file that can be preprocessed using Jinja2 templates.
 
 Building a Gramine application from Rust
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Gramine provides a Python library to automate the process of creating Enclaves. 
-Using PyO3, the application uses the `graminelibos` Python library and builds enclave 
+Using PyO3, the application uses the `graminelibos` Python library and builds enclaves 
 from a default manifest included in `src/constants.rs`. Building a Gramine-SGX 
 application means:
 
@@ -311,16 +311,15 @@ For each experiment, the application builds the following structure:
 
 The root directory is the `experiment_directory` which contains:
 
-- **<prog>.manifest.sgx**: the built manifest which contains all trusted files hashes, mountpoints
+- **<prog>.manifest.sgx**: the built manifest which contains all trusted files' hashes, mount points
   etc.;
 - **<prog>.sig**: contains the enclave signature;
 - **encrypted**: a directory mounted as encrypted to the Gramine application. Every file
-  will be protected by an hardcoded key;
+  will be protected by a hardcoded key;
 - **untrusted**: a directory mounted to the enclave as `sgx.allowed_files`
 
-Untrusted and encrypted path directory will be used by the user through the 
+Untrusted and encrypted path directories will be used by the user through the 
 `{{ output_directory }}` variable in the input file.
 
 Every iteration specified in `globals.sample_size` will have a dedicated directory 
 (called with the index of the iteration) in `<prog>-<threads>-<enclave-size>-<storage>`.
-
