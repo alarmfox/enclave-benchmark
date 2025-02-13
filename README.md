@@ -1,13 +1,11 @@
-# Intel based TEE benchmark
-This tool collects metrics to compare application performance when executed in an Intel-based TEE (SGX) 
-using Gramine versus running on bare metal.
+# Intel-based TEE Benchmark
+This tool collects metrics to compare application performance when executed in an Intel-based TEE (SGX) using Gramine versus running on bare metal.
 
 Full documentation is available [here](https://alarmfox.github.io/enclave-benchmark/).
 
-## Quick start [Ubuntu 22.04 or 24.04]
+## Quick Start [Ubuntu 22.04 or 24.04]
 
-If on Ubuntu 22.04 or 24.04, the host can be setup by running the script in `dev/setup_host.sh` (run the 
-script from the root directory of the project).
+If you are using Ubuntu 22.04 or 24.04, you can set up the host by running the script in `dev/setup_host.sh` (run the script from the root directory of the project).
 
 First, clone the repository:
 
@@ -23,13 +21,13 @@ sudo chmod +x ./dev/setup_host.sh
 sudo ./dev/setup_host.sh
 ```
 
-For any custom setup, follow *bare metal* instructions [here](https://alarmfox.github.io/enclave-benchmark/installation.html#bare-metal).
+For any custom setup, follow the *bare metal* instructions [here](https://alarmfox.github.io/enclave-benchmark/installation.html#bare-metal).
 
 Now, you can run the build command (remove `--release` for a fast but unoptimized build):
 ```sh
 cargo build --release
 ```
-After building the application will be in `target/<debug|release>/enclave-benchmark`.
+After building, the application will be in `target/<debug|release>/enclave-benchmark`.
 
 **(Optional)** Copy the executable somewhere else:
 
@@ -40,23 +38,23 @@ cp target/<debug|release>/enclave-benchmark .
 ### Running
 ```sh
 ./enclave-benchmark -h
-A cli app to run benchmarks for Gramine application
+A CLI app to run benchmarks for Gramine applications
 
 Usage: enclave-benchmark [OPTIONS] --config <CONFIG>
 
 Options:
   -v...                  Turn debugging information on
   -c, --config <CONFIG>  Path to configuration file
-      --force            Remove previous results directory (if exists)
+      --force            Remove previous results directory (if it exists)
   -h, --help             Print help
   -V, --version          Print version
-```
 
+```
 Run an example workload with:
+
 ```sh
 sudo ./enclave-benchmark -v -c examples/iobound.toml
 ```
-
 The `test` directory will look like:
 
 ```sh
@@ -118,10 +116,10 @@ test
 └── private_key.pem
 ```
 
-## Workload file
-The application takes a `toml` file as input and performs sequentials benchmark. 
+## Workload File
+The application takes a `toml` file as input and performs sequential benchmarks.
 
-Example files are stored in the `examples` directory. Below `examples/full.toml`:
+Example files are stored in the `examples` directory. Below is `examples/full.toml`:
 
 ```toml
 [globals]
@@ -151,18 +149,16 @@ args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "clean", "app"
 executable = "./examples/simple-writer/writer"
 args = ["{{ output_directory }}"]
 storage_type = ["encrypted", "tmpfs", "untrusted"]
-
 ```
-A workload file has 2 sections:
-* globals: parameters used to generate experiments, output directory, custom perf_events, debug etc.;
+
+A workload file has two sections:
+* globals: parameters used to generate experiments, output directory, custom perf_events, debug, etc.;
 * task: each task is a program to benchmark and has an executable and args;
 
-### Variables expansion
-The `toml` file is dynamic. For example, if an application executes with different number of threads
-you can mark the parameter with the `{{ num_threads }}` placeholder. On each iteration it will be
-populated with an element from `globals.num_threads` (see `make` task in the example above).
+### Variables Expansion
+The `toml` file is dynamic. For example, if an application executes with a different number of threads, you can mark the parameter with the `{{ num_threads }}` placeholder. On each iteration, it will be populated with an element from `globals.num_threads` (see the `make` task in the example above).
 
-Each task can specify a `storage_type` array (see `writer` task in the example above). Supported storage are:
-* encrypted: Gramine encrypted directory with an hardcoded key;
-* tmpfs: an in memory filesystem similar to tmpfs which is encrypted according to Gramine;
+Each task can specify a `storage_type` array (see the `writer` task in the example above). Supported storage types are:
+* encrypted: Gramine encrypted directory with a hardcoded key;
+* tmpfs: an in-memory filesystem similar to tmpfs, which is encrypted according to Gramine;
 * untrusted: simple storage with no integrity check and no encryption;
