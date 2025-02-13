@@ -118,7 +118,7 @@ mod test {
         assert!(config.globals.debug);
         assert_eq!(2, config.tasks.len());
         assert_eq!(3, config.globals.sample_size);
-        let args = config.tasks[1].clone().args.unwrap();
+        let args = config.tasks[1].clone().args;
         assert_eq!(2, args.len());
         assert_eq!(1, config.globals.num_threads.len());
         assert_eq!(2, config.globals.enclave_size.len());

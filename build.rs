@@ -29,8 +29,6 @@ fn main() {
     )
     .expect("cannot write header file");
 
-    // bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
-
     let out = manifest_dir.join("src").join("bpf").join("tracer.skel.rs");
 
     SkeletonBuilder::new()

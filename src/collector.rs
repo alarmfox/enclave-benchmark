@@ -187,15 +187,12 @@ impl DefaultCollector {
     }
 
     #[tracing::instrument(level = "debug", skip(self), err)]
-    #[allow(clippy::too_many_arguments)]
     pub fn attach(
         self: Arc<Self>,
         program: PathBuf,
         args: Vec<String>,
-        pre_run_executable: Option<PathBuf>,
-        pre_run_args: Vec<String>,
-        post_run_executable: Option<PathBuf>,
-        post_run_args: Vec<String>,
+        pre_run: Option<(PathBuf, Vec<String>)>,
+        post_run: Option<(PathBuf, Vec<String>)>,
         output_directory: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let me = self.clone();
@@ -203,15 +200,15 @@ impl DefaultCollector {
             let experiment_directory = output_directory.join(PathBuf::from(n.to_string()));
             create_dir_all(&experiment_directory)?;
 
-            if let Some(cmd) = &pre_run_executable {
-                run_command_with_args(cmd, &pre_run_args)?;
+            if let Some((cmd, args)) = &pre_run {
+                run_command_with_args(cmd, args)?;
             }
 
             me.clone()
                 .run_experiment(&program, &args, experiment_directory.as_path(), false)?;
 
-            if let Some(cmd) = &post_run_executable {
-                run_command_with_args(cmd, &post_run_args)?;
+            if let Some((cmd, args)) = &post_run {
+                run_command_with_args(cmd, args)?;
             }
         }
 
@@ -243,20 +240,13 @@ impl DefaultCollector {
         let tracing_handle = {
             let me = self.clone();
             let tracing_stop = stop.clone();
-            thread::spawn(move || me.trace_program(pid, tracing_stop))
+            thread::spawn(move || me.trace_program(pid, deep_trace, tracing_stop))
         };
 
         let wait_child_handle = {
             let me = self.clone();
             let stop = stop.clone();
             thread::spawn(move || me.wait_for_child(child, stop))
-        };
-
-        let deep_stats_handle = if deep_trace {
-            let me = self.clone();
-            Some(thread::spawn(move || me.deep_trace(pid)))
-        } else {
-            None
         };
 
         let (mem_stats, disk_stats, sgx_counters) = tracing_handle.join().unwrap();
@@ -267,8 +257,6 @@ impl DefaultCollector {
         let disk_stats = process_disk_stats(&self.partitions, disk_stats);
         let (sys_write_count, sys_write_avg, sys_read_count, sys_read_avg) =
             process_mem_stats(mem_stats);
-
-        let deep_stats = deep_stats_handle.map(|v| v.join().unwrap());
 
         let sgx_stats = get_sgx_stats(&stderr, sgx_counters);
 
@@ -283,7 +271,7 @@ impl DefaultCollector {
             sys_write_avg,
             sys_read_count,
             sys_write_count,
-            deep_stats,
+            deep_stats: None,
         }
     }
 
@@ -347,6 +335,7 @@ impl DefaultCollector {
     fn trace_program(
         &self,
         pid: u32,
+        _deep_trace: bool,
         tracing_stop: Arc<AtomicBool>,
     ) -> (
         Vec<(u32, io_counter)>,
@@ -765,9 +754,7 @@ mod test {
                 PathBuf::from("/bin/sleep"),
                 vec!["1".to_string()],
                 None,
-                vec![],
                 None,
-                vec![],
                 output_directory.path(),
             )
             .unwrap();

@@ -30,7 +30,10 @@ pub fn default_energy_sample_interval() -> Duration {
 #[derive(Deserialize, Clone, Debug)]
 pub struct Task {
     pub executable: PathBuf,
-    pub args: Option<Vec<String>>,
+
+    #[serde(default)]
+    pub args: Vec<String>,
+
     pub custom_manifest_path: Option<PathBuf>,
     #[serde(
         default = "default_storage_type",
@@ -39,10 +42,12 @@ pub struct Task {
     pub storage_type: Vec<StorageType>,
 
     pub pre_run_executable: Option<PathBuf>,
-    pub pre_run_args: Option<Vec<String>>,
+    #[serde(default)]
+    pub pre_run_args: Vec<String>,
 
     pub post_run_executable: Option<PathBuf>,
-    pub post_run_args: Option<Vec<String>>,
+    #[serde(default)]
+    pub post_run_args: Vec<String>,
 }
 
 pub fn default_storage_type() -> Vec<StorageType> {

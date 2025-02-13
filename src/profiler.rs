@@ -191,19 +191,18 @@ impl Profiler {
         post_args: Vec<String>,
         num_threads: usize,
         fallback_storage_path: PathBuf,
-        storage_type: Option<StorageType>,
+        storage_type: StorageType,
         gramine_metadata: Option<GramineMetadata>,
     ) -> Result<(Vec<String>, Vec<String>, Vec<String>), Box<dyn std::error::Error>> {
         // detect storage type if in sgx
         // otherwise a simple directory is returned
         let output_directory = match gramine_metadata.clone() {
             Some(metadata) => match storage_type {
-                Some(StorageType::Encrypted) => metadata.encrypted_path,
-                Some(StorageType::Untrusted) => metadata.untrusted_path,
-                Some(StorageType::Tmpfs) => metadata.tmpfs_path,
-                None => panic!("gramine sgx must have a storage type"),
+                StorageType::Encrypted => metadata.encrypted_path,
+                StorageType::Untrusted => metadata.untrusted_path,
+                StorageType::Tmpfs => metadata.tmpfs_path,
             },
-            None => fallback_storage_path.clone(),
+            None => fallback_storage_path,
         };
 
         // expand args
@@ -246,76 +245,81 @@ impl Profiler {
         let task_path = self.output_directory.join(program_name);
         let collector = self.collector.clone();
 
+        let process_task = |num_threads: &usize,
+                            enclave_size: Option<&String>,
+                            gramine_metadata: Option<GramineMetadata>|
+         -> Result<(), Box<dyn std::error::Error>> {
+            let experiment_path = match enclave_size {
+                Some(size) => task_path.join(format!(
+                    "gramine-sgx/{}-{}-{}",
+                    program_name, num_threads, size
+                )),
+                None => task_path.join(format!("no-gramine-sgx/{}-{}", program_name, num_threads)),
+            };
+            create_dir_all(&experiment_path)?;
+
+            let fallback_storage_path = match &gramine_metadata {
+                Some(metadata) => metadata.untrusted_path.clone(),
+                None => experiment_path.join("storage"),
+            };
+
+            let storage_types = if gramine_metadata.is_some() {
+                task.storage_type.clone()
+            } else {
+                vec![StorageType::Untrusted]
+            };
+
+            for storage_type in &storage_types {
+                let (args, pre_args, post_args) = Self::build_and_expand_args(
+                    task.args.clone(),
+                    task.pre_run_args.clone(),
+                    task.post_run_args.clone(),
+                    *num_threads,
+                    fallback_storage_path.clone(),
+                    storage_type.clone(),
+                    gramine_metadata.clone(),
+                )?;
+
+                let pre_task = task.pre_run_executable.clone().map(|e| (e, pre_args));
+                let post_task = task.post_run_executable.clone().map(|e| (e, post_args));
+                let result_path = experiment_path.join(format!(
+                    "{}-{}-{}-{}",
+                    program_name,
+                    num_threads,
+                    enclave_size.unwrap_or(&String::new()),
+                    storage_type
+                ));
+
+                collector.clone().attach(
+                    if gramine_metadata.is_some() {
+                        PathBuf::from("gramine-sgx")
+                    } else {
+                        task.executable.clone()
+                    },
+                    args,
+                    pre_task,
+                    post_task,
+                    &result_path,
+                )?;
+            }
+            Ok(())
+        };
+
         for num_threads in &self.num_threads {
             for enclave_size in &self.enclave_size {
-                let experiment_path = task_path.join(format!(
-                    "gramine-sgx/{}-{}-{}",
-                    program_name, num_threads, enclave_size
-                ));
-                create_dir_all(&experiment_path)?;
-
                 let gramine_metadata = self.build_and_sign_enclave(
                     &task.executable,
-                    &experiment_path,
+                    &task_path.join(format!(
+                        "gramine-sgx/{}-{}-{}",
+                        program_name, num_threads, enclave_size
+                    )),
                     num_threads,
                     enclave_size,
                     task.custom_manifest_path.clone(),
                 )?;
-
-                for storage_type in &task.storage_type {
-                    let (args, pre_args, post_args) = Self::build_and_expand_args(
-                        task.args.clone().unwrap_or_default(),
-                        task.pre_run_args.clone().unwrap_or_default(),
-                        task.post_run_args.clone().unwrap_or_default(),
-                        *num_threads,
-                        gramine_metadata.clone().untrusted_path,
-                        Some(storage_type.clone()),
-                        Some(gramine_metadata.clone()),
-                    )?;
-
-                    let result_path = &experiment_path.join(format!(
-                        "{}-{}-{}-{}",
-                        program_name, num_threads, enclave_size, storage_type
-                    ));
-
-                    collector.clone().attach(
-                        PathBuf::from("gramine-sgx"),
-                        args,
-                        task.pre_run_executable.clone(),
-                        pre_args,
-                        task.post_run_executable.clone(),
-                        post_args,
-                        result_path,
-                    )?;
-                }
+                process_task(num_threads, Some(enclave_size), Some(gramine_metadata))?;
             }
-        }
-        for num_threads in &self.num_threads {
-            let experiment_path =
-                task_path.join(format!("no-gramine-sgx/{}-{}", program_name, num_threads));
-
-            let storage_path = experiment_path.join("storage");
-            create_dir_all(&storage_path)?;
-
-            let (args, pre_args, post_args) = Self::build_and_expand_args(
-                task.args.clone().unwrap_or_default(),
-                task.pre_run_args.clone().unwrap_or_default(),
-                task.post_run_args.clone().unwrap_or_default(),
-                *num_threads,
-                storage_path,
-                None,
-                None,
-            )?;
-
-            collector.clone().attach(
-                task.executable.clone(),
-                args,
-                task.pre_run_executable.clone(),
-                pre_args,
-                task.post_run_executable.clone(),
-                post_args,
-                &experiment_path,
-            )?;
+            process_task(num_threads, None, None)?;
         }
         Ok(())
     }
@@ -407,7 +411,7 @@ mod test {
             vec![],
             1,
             output_directory.clone(),
-            None,
+            StorageType::Untrusted,
             None,
         )
         .unwrap();
@@ -432,7 +436,7 @@ mod test {
             vec![],
             1,
             output_directory.join("fallback"),
-            Some(StorageType::Encrypted),
+            StorageType::Encrypted,
             Some(gramine_metadata.clone()),
         )
         .unwrap();
@@ -451,33 +455,6 @@ mod test {
             output_directory.join("encrypted_path").to_str().unwrap()
         );
         assert_eq!(args.0[2], String::from("1"));
-    }
-
-    #[test]
-    #[should_panic]
-    fn missing_storage_for_sgx() {
-        let output_directory = TempDir::new().unwrap().path().join("storage");
-        let args = vec![
-            String::from("{{ output_directory }}"),
-            String::from("{{ num_threads }}"),
-        ];
-
-        let gramine_metadata = GramineMetadata {
-            manifest_path: output_directory.join("app.manifest.sgx"),
-            encrypted_path: output_directory.join("encrypted_path"),
-            untrusted_path: output_directory.join("plaintext_path"),
-            tmpfs_path: output_directory.join("tmpfs_path"),
-        };
-        Profiler::build_and_expand_args(
-            args,
-            vec![],
-            vec![],
-            1,
-            output_directory.join("fallback"),
-            None,
-            Some(gramine_metadata.clone()),
-        )
-        .unwrap();
     }
 
     #[test]
