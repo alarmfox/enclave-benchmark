@@ -52,6 +52,12 @@ struct {
 } sgx_stats SEC(".maps");
 
 static __always_inline int snd_trace_event(__u32 evt) {
+  u32 pid = (u32)bpf_get_current_pid_tgid();
+
+  if (pid != targ_pid) {
+    return 0;
+  }
+
   u64 ts = bpf_ktime_get_ns();
   struct event *rb_event =
       bpf_ringbuf_reserve(&events, sizeof(struct event), 0);
@@ -120,7 +126,8 @@ static __always_inline int record_start_ts() {
 SEC("tracepoint/syscalls/sys_enter_read")
 int trace_enter_read(struct trace_event_raw_sys_enter *ctx) {
   if (deep_trace) {
-    return record_start_ts() && snd_trace_event(EVENT_READ_MEM);
+    bpf_printk("bpf_ringbuf read");
+    return record_start_ts() || snd_trace_event(EVENT_READ_MEM);
   }
   return record_start_ts();
 }
@@ -129,7 +136,7 @@ int trace_enter_read(struct trace_event_raw_sys_enter *ctx) {
 SEC("tracepoint/syscalls/sys_enter_write")
 int trace_enter_write(struct trace_event_raw_sys_enter *ctx) {
   if (deep_trace) {
-    return record_start_ts() && snd_trace_event(EVENT_READ_MEM);
+    return record_start_ts() || snd_trace_event(EVENT_READ_MEM);
   }
   return record_start_ts();
 }
