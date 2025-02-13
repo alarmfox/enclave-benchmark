@@ -9,6 +9,12 @@
 #include "tracer.h"
 
 const volatile pid_t targ_pid = 0;
+const volatile bool deep_trace = false;
+
+struct {
+  __uint(type, BPF_MAP_TYPE_RINGBUF);
+  __uint(max_entries, 1024 * 1000);
+} events SEC(".maps");
 
 struct {
   __uint(type, BPF_MAP_TYPE_HASH);
@@ -44,6 +50,25 @@ struct {
   __type(key, u32);
   __type(value, struct sgx_counters);
 } sgx_stats SEC(".maps");
+
+static __always_inline int snd_trace_event(__u32 evt) {
+  u64 ts = bpf_ktime_get_ns();
+  struct event *rb_event =
+      bpf_ringbuf_reserve(&events, sizeof(struct event), 0);
+
+  if (!rb_event) {
+    // if bpf_ringbuf_reserve fails, print an error message and return
+    bpf_printk("bpf_ringbuf_reserve failed\n");
+    return 1;
+  }
+
+  rb_event->type = evt;
+  rb_event->timestamp = ts;
+
+  bpf_ringbuf_submit(rb_event, 0);
+
+  return 0;
+}
 
 static __always_inline int record_end_ts(int syscall) {
   u32 pid;
@@ -94,12 +119,18 @@ static __always_inline int record_start_ts() {
 // Attach to the tracepoint for exit read syscalls.
 SEC("tracepoint/syscalls/sys_enter_read")
 int trace_enter_read(struct trace_event_raw_sys_enter *ctx) {
+  if (deep_trace) {
+    return record_start_ts() && snd_trace_event(EVENT_READ_MEM);
+  }
   return record_start_ts();
 }
 
 // Attach to the tracepoint for exit write syscalls.
 SEC("tracepoint/syscalls/sys_enter_write")
 int trace_enter_write(struct trace_event_raw_sys_enter *ctx) {
+  if (deep_trace) {
+    return record_start_ts() && snd_trace_event(EVENT_READ_MEM);
+  }
   return record_start_ts();
 }
 

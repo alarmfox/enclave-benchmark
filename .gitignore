@@ -6,4 +6,3 @@
 /**/build
 /**/.venv
 src/bpf/vmlinux.h
-src/bpf/tracer.h

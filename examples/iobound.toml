@@ -5,6 +5,7 @@ output_directory = "test"
 num_threads = [1]
 extra_perf_events = ["cpu-clock"]
 debug = false
+trace = false
 
 [[tasks]]
 executable = "/bin/dd"

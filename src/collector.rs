@@ -62,6 +62,14 @@ struct DiskStats {
     perc_seq: u32,
 }
 
+struct TraceResult {
+    mem_counters: Vec<(u32, io_counter)>,
+    disk_counters: Vec<(u32, disk_counter)>,
+    sgx_counters: Option<LowLevelSgxCounters>,
+
+    deep_stats: Option<Vec<(String, u64)>>,
+}
+
 // # of EENTERs:        139328
 // # of EEXITs:         139250
 // # of AEXs:           5377
@@ -100,7 +108,7 @@ struct Metrics {
     sys_read_count: u64,
     sys_read_avg: u64,
     disk_stats: Vec<DiskStats>,
-    sgx_stats: SGXStats,
+    sgx_stats: Option<SGXStats>,
     deep_stats: Option<DeepStats>,
 }
 
@@ -174,12 +182,12 @@ impl DefaultCollector {
 
         match cmd {
             Ok(child) => {
-                let metrics = self.collect_metrics(child, deep_trace);
+                let metrics = self.collect_metrics(child, is_sgx, deep_trace);
 
                 save_perf_output(experiment_directory, &metrics.perf_output)?;
                 save_stdout_stderr(experiment_directory, &metrics.stdout, &metrics.stderr)?;
                 save_energy_data(experiment_directory, metrics.energy_stats.clone())?;
-                save_io_metrics(experiment_directory, &metrics, is_sgx)?;
+                save_io_metrics(experiment_directory, &metrics)?;
             }
             Err(e) => error!("cannot start child process {}", e),
         }
@@ -222,7 +230,7 @@ impl DefaultCollector {
     }
 
     #[tracing::instrument(level = "trace", skip(self, child))]
-    fn collect_metrics(self: Arc<Self>, child: Child, deep_trace: bool) -> Metrics {
+    fn collect_metrics(self: Arc<Self>, child: Child, is_sgx: bool, deep_trace: bool) -> Metrics {
         let stop = Arc::new(AtomicBool::new(false));
         let pid = child.id();
 
@@ -240,7 +248,7 @@ impl DefaultCollector {
         let tracing_handle = {
             let me = self.clone();
             let tracing_stop = stop.clone();
-            thread::spawn(move || me.trace_program(pid, deep_trace, tracing_stop))
+            thread::spawn(move || me.trace_program(pid, is_sgx, deep_trace, tracing_stop))
         };
 
         let wait_child_handle = {
@@ -249,16 +257,19 @@ impl DefaultCollector {
             thread::spawn(move || me.wait_for_child(child, stop))
         };
 
-        let (mem_stats, disk_stats, sgx_counters) = tracing_handle.join().unwrap();
+        let trace_result = tracing_handle.join().unwrap();
+
         let (stdout, stderr) = wait_child_handle.join().unwrap();
         let energy_stats = energy_handle.join().unwrap();
         let perf_output = perf_handle.join().unwrap();
 
-        let disk_stats = process_disk_stats(&self.partitions, disk_stats);
+        let disk_stats = process_disk_stats(&self.partitions, trace_result.disk_counters);
         let (sys_write_count, sys_write_avg, sys_read_count, sys_read_avg) =
-            process_mem_stats(mem_stats);
+            process_mem_stats(trace_result.mem_counters);
 
-        let sgx_stats = get_sgx_stats(&stderr, sgx_counters);
+        let sgx_stats = trace_result
+            .sgx_counters
+            .map(|sgx_counters| get_sgx_stats(&stderr, sgx_counters));
 
         Metrics {
             stdout,
@@ -335,19 +346,17 @@ impl DefaultCollector {
     fn trace_program(
         &self,
         pid: u32,
-        _deep_trace: bool,
+        is_sgx: bool,
+        deep_trace: bool,
         tracing_stop: Arc<AtomicBool>,
-    ) -> (
-        Vec<(u32, io_counter)>,
-        Vec<(u32, disk_counter)>,
-        LowLevelSgxCounters,
-    ) {
+    ) -> TraceResult {
         let skel_builder = TracerSkelBuilder::default();
         let mut open_object = MaybeUninit::uninit();
         let open_skel = skel_builder
             .open(&mut open_object)
             .expect("cannot open ebpf program");
         open_skel.maps.rodata_data.targ_pid = pid as i32;
+        open_skel.maps.rodata_data.deep_trace = deep_trace;
         trace!(
             "attaching ebpf program on target process with pid {}",
             pid as i32
@@ -355,6 +364,22 @@ impl DefaultCollector {
         let mut prog = open_skel.load().expect("cannot load ebpf program");
         prog.attach().expect("cannot attach program");
 
+        //if deep_trace {
+        //    let mut ring_buffer = RingBufferBuilder::new();
+        //    ring_buffer
+        //        .add(&prog.maps.events, move |_c| -> i32 {
+        //            trace!("warn sus");
+        //            0
+        //        })
+        //        .unwrap();
+        //
+        //    let ring_buffer = ring_buffer.build().unwrap();
+        //
+        //    while !tracing_stop.load(Ordering::Relaxed) {
+        //        ring_buffer.poll(Duration::from_millis(200)).unwrap();
+        //    }
+        //} else {
+        //}
         while !tracing_stop.load(Ordering::Relaxed) {
             thread::sleep(Duration::from_secs(1));
         }
@@ -393,20 +418,29 @@ impl DefaultCollector {
         );
 
         let key_bytes = 0_i32.to_ne_bytes();
-        let sgx_counters = if let Some(val_bytes) = prog
-            .maps
-            .sgx_stats
-            .lookup(&key_bytes, MapFlags::ANY)
-            .unwrap()
-        {
-            // Safety: The size of LowLevelSGX is known; ensure that val_bytes has at least that many bytes.
-            let sgx: LowLevelSgxCounters =
-                unsafe { std::ptr::read_unaligned(val_bytes.as_ptr() as *const _) };
-            sgx
+
+        let sgx_counters = if is_sgx {
+            prog.maps
+                .sgx_stats
+                .lookup(&key_bytes, MapFlags::ANY)
+                .ok()
+                .flatten()
+                .map(|val_bytes| {
+                    // Safety: The size of LowLevelSGX is known; ensure that val_bytes has at least that many bytes.
+                    unsafe {
+                        std::ptr::read_unaligned(val_bytes.as_ptr() as *const LowLevelSgxCounters)
+                    }
+                })
+                .or(Some(LowLevelSgxCounters::default()))
         } else {
-            LowLevelSgxCounters::default()
+            None
         };
-        (mem_counters, disk_counters, sgx_counters)
+        TraceResult {
+            disk_counters,
+            sgx_counters,
+            mem_counters,
+            deep_stats: None,
+        }
     }
 
     fn wait_for_child(&self, child: Child, stop: Arc<AtomicBool>) -> (Vec<u8>, Vec<u8>) {
@@ -430,16 +464,6 @@ impl DefaultCollector {
         }
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         (stdout, stderr)
-    }
-
-    fn deep_trace(&self, _pid: u32) -> DeepStats {
-        //let skel_builder = tracer::
-        //let mut open_object = MaybeUninit::uninit();
-        //let open_skel = skel_builder
-        //    .open(&mut open_object)
-        //    .expect("cannot open ebpf program");
-
-        todo!()
     }
 }
 
@@ -670,12 +694,10 @@ mod utils {
     pub fn save_io_metrics(
         experiment_directory: &Path,
         metrics: &Metrics,
-        is_sgx: bool,
     ) -> Result<(), std::io::Error> {
         let mut file = File::create(experiment_directory.join("io.csv"))?;
         writeln!(file, "{}", IO_CSV_HEADER)?;
-        if is_sgx {
-            let sgx = &metrics.sgx_stats;
+        if let Some(sgx) = &metrics.sgx_stats {
             writeln!(file, "sgx_enter,#,{},,", sgx.eenter)?;
             writeln!(file, "sgx_eexit,#,{},,", sgx.eexit)?;
             writeln!(file, "sgx_aexit,#,{},,", sgx.aexit)?;

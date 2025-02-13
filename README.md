@@ -162,3 +162,21 @@ Each task can specify a `storage_type` array (see the `writer` task in the examp
 * encrypted: Gramine encrypted directory with a hardcoded key;
 * tmpfs: an in-memory filesystem similar to tmpfs, which is encrypted according to Gramine;
 * untrusted: simple storage with no integrity check and no encryption;
+
+## Development
+To develop on a non SGX machine, SGX excution can be disabled by setting the environment variable `EB_SKIP_SGX` with:
+
+```sh
+export EB_SKIP_SGX=1
+```
+
+and defining the `EB_SKIP_SGX` in `src/bpf/tracer.h`.
+
+```c
+#ifndef __TRACER_H
+#define __TRACER_H
+
+#define EB_SKIP_SGX
+
+// rest of the file...
+```
