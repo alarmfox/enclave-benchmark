@@ -16,6 +16,7 @@ mod collector;
 mod common;
 mod constants;
 mod profiler;
+mod stats;
 
 mod tracer {
   include!(concat!(

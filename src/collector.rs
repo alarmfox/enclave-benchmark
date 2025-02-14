@@ -1,16 +1,14 @@
-#![allow(dead_code)]
 use std::{
   collections::{HashMap, HashSet},
   env,
   fmt::Debug,
-  fs::{self, create_dir_all, File},
-  io::{BufRead, BufReader},
+  fs::{self, create_dir_all},
   mem::MaybeUninit,
   path::{Path, PathBuf},
   process::{Child, Command, Stdio},
   sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, Mutex,
   },
   thread,
   time::{Duration, SystemTime},
@@ -25,11 +23,13 @@ use plain::Plain;
 use tracing::{debug, error, trace, warn};
 use utils::{
   extract_rapl_path, get_map_result, get_sgx_stats, process_disk_stats, process_mem_stats,
-  run_command_with_args, save_energy_data, save_io_metrics, save_perf_output, save_stdout_stderr,
+  run_command_with_args, save_deep_stats, save_energy_data, save_io_metrics, save_perf_output,
+  save_stdout_stderr,
 };
 
 use crate::{
   constants::DEFAULT_PERF_EVENTS,
+  stats::{DeepTraceEvent, DiskStats, EnergySample, LowLevelSgxCounters, Partition, SGXStats},
   tracer::{
     types::{disk_counter, io_counter},
     TracerSkelBuilder,
@@ -38,14 +38,6 @@ use crate::{
 unsafe impl Plain for io_counter {}
 unsafe impl Plain for disk_counter {}
 
-#[cfg(target_os = "linux")]
-#[derive(Clone)]
-struct Partition {
-  name: String,
-  dev: u32,
-}
-
-#[cfg(target_os = "linux")]
 pub struct DefaultCollector {
   sample_size: u32,
   deep_trace: bool,
@@ -55,51 +47,16 @@ pub struct DefaultCollector {
   partitions: Vec<Partition>,
 }
 
-struct DiskStats {
-  name: String,
-  bytes: u64,
-  perc_random: u32,
-  perc_seq: u32,
-}
-
 struct TraceResult {
   mem_counters: Vec<(u32, io_counter)>,
   disk_counters: Vec<(u32, disk_counter)>,
   sgx_counters: Option<LowLevelSgxCounters>,
 
-  deep_stats: Option<Vec<(String, u64)>>,
-}
-
-// # of EENTERs:        139328
-// # of EEXITs:         139250
-// # of AEXs:           5377
-// # of sync signals:   72
-// # of async signals:  0
-#[derive(Default)]
-struct SGXStats {
-  eenter: u64,
-  eexit: u64,
-  aexit: u64,
-  sync_signals: u64,
-  async_signals: u64,
-  counters: LowLevelSgxCounters,
-}
-
-#[repr(C)]
-#[derive(Default)]
-struct LowLevelSgxCounters {
-  encl_load_page: u64,
-  encl_wb: u64,
-  vma_access: u64,
-  vma_fault: u64,
-}
-
-struct DeepStats {
-  cpu_events: Vec<(u64, u64)>,
+  deep_stats: Option<Vec<DeepTraceEvent>>,
 }
 
 struct Metrics {
-  energy_stats: HashMap<String, Vec<String>>,
+  energy_stats: HashMap<String, Vec<EnergySample>>,
   stdout: Vec<u8>,
   stderr: Vec<u8>,
   perf_output: Vec<u8>,
@@ -109,7 +66,7 @@ struct Metrics {
   sys_read_avg: u64,
   disk_stats: Vec<DiskStats>,
   sgx_stats: Option<SGXStats>,
-  deep_stats: Option<DeepStats>,
+  deep_stats: Option<Vec<DeepTraceEvent>>,
 }
 
 impl DefaultCollector {
@@ -188,6 +145,9 @@ impl DefaultCollector {
         save_stdout_stderr(experiment_directory, &metrics.stdout, &metrics.stderr)?;
         save_energy_data(experiment_directory, metrics.energy_stats.clone())?;
         save_io_metrics(experiment_directory, &metrics)?;
+        if let Some(deep_stats) = metrics.deep_stats {
+          save_deep_stats(experiment_directory, deep_stats)?;
+        }
       }
       Err(e) => error!("cannot start child process {}", e),
     }
@@ -285,7 +245,7 @@ impl DefaultCollector {
       sys_write_avg,
       sys_read_count,
       sys_write_count,
-      deep_stats: None,
+      deep_stats: trace_result.deep_stats,
     }
   }
 
@@ -324,27 +284,34 @@ impl DefaultCollector {
     perf_output
   }
 
-  fn monitor_energy_consumption(&self, stop: &AtomicBool) -> HashMap<String, Vec<String>> {
-    let mut measures: HashMap<String, Vec<String>> = HashMap::new();
+  fn monitor_energy_consumption(
+    &self,
+    stop: &std::sync::atomic::AtomicBool,
+  ) -> HashMap<String, Vec<EnergySample>> {
+    let mut measures: HashMap<String, Vec<EnergySample>> = HashMap::new();
     while !stop.load(Ordering::Relaxed) {
       let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
       for (name, rapl_path) in &self.rapl_paths {
-        if let Ok(energy_uj) = fs::read_to_string(rapl_path) {
-          measures.entry(name.to_owned()).or_default().push(format!(
-            "{},{}",
-            timestamp,
-            energy_uj.trim()
-          ));
+        if let Ok(energy_str) = fs::read_to_string(rapl_path) {
+          // Parse the energy value as a number (assumes the file contains a numeric value)
+          if let Ok(energy_uj) = energy_str.trim().parse::<u64>() {
+            measures
+              .entry(name.to_owned())
+              .or_default()
+              .push(EnergySample {
+                timestamp,
+                energy_uj,
+              });
+          }
         }
       }
       thread::sleep(self.energy_sample_interval);
     }
     measures
   }
-
   #[allow(clippy::type_complexity)]
   fn trace_program(
     &self,
@@ -369,20 +336,27 @@ impl DefaultCollector {
 
     let mut maybe_ring_buffer = if deep_trace {
       let mut ring_buffer = RingBufferBuilder::new();
+      let result = Arc::new(Mutex::new(Vec::new()));
       ring_buffer
-        .add(&prog.maps.events, move |_c| -> i32 { 0 })
+        .add(&prog.maps.events, {
+          let result = result.clone();
+          move |c| -> i32 {
+            let deep_trace_event =
+              unsafe { std::ptr::read_unaligned(c.as_ptr() as *const DeepTraceEvent) };
+            result.lock().unwrap().push(deep_trace_event);
+            0
+          }
+        })
         .unwrap();
-      println!("built ring buffer");
-      Some(ring_buffer.build().unwrap())
+      Some((ring_buffer.build().unwrap(), result))
     } else {
       None
     };
 
     // wait for target program to end
     while !tracing_stop.load(Ordering::Relaxed) {
-      if let Some(ref mut rb) = maybe_ring_buffer {
-        println!("polling");
-        rb.poll(Duration::from_millis(500))
+      if let Some((ref mut rb, _)) = maybe_ring_buffer {
+        rb.poll(Duration::from_millis(250))
           .expect("cannot poll from ring buffer");
       } else {
         thread::sleep(Duration::from_secs(1));
@@ -439,11 +413,21 @@ impl DefaultCollector {
     } else {
       None
     };
+
+    // need to copy because there are problems when extracting from Arc<Mutex<T>>
+    let deep_stats = match maybe_ring_buffer {
+      Some((_, stats)) => {
+        let result = stats.lock().unwrap().clone();
+        Some(result)
+      }
+      None => None,
+    };
+
     TraceResult {
       disk_counters,
       sgx_counters,
       mem_counters,
-      deep_stats: None,
+      deep_stats,
     }
   }
 
@@ -466,7 +450,7 @@ impl DefaultCollector {
       }
       Err(e) => error!("target program exited with error {e}"),
     }
-    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    stop.store(true, Ordering::Relaxed);
     (stdout, stderr)
   }
 }
@@ -488,53 +472,6 @@ impl Debug for DefaultCollector {
   }
 }
 
-impl From<&str> for Partition {
-  fn from(value: &str) -> Self {
-    let parts = value.split_whitespace().collect::<Vec<&str>>();
-    assert_eq!(parts.len(), 4);
-
-    let major = parts[0].parse::<u32>().unwrap();
-    let minor = parts[1].parse::<u32>().unwrap();
-
-    Partition {
-      name: parts[3].parse().unwrap(),
-      // https://man7.org/linux/man-pages/man3/makedev.3.html
-      dev: major << 20 | minor,
-    }
-  }
-}
-
-impl Partition {
-  // Loads current partitions from /proc/partitions
-  // https://github.com/eunomia-bpf/bpf-developer-tutorial/blob/main/src/17-biopattern/trace_helpers.c
-  // the file has a structure like this
-  //
-  // major minor  #blocks  name
-  //
-  //   259     0  250059096 nvme0n1
-  //   259     1     524288 nvme0n1p1
-  //   259     2   25165824 nvme0n1p2
-  //   259     3  224367616 nvme0n1p3
-  //     8     0  976762584 sda
-  //     8     1  976760832 sda1
-  pub fn load() -> Vec<Self> {
-    let f = File::open("/proc/partitions").expect("cannot open /proc/partitions");
-    let reader = BufReader::new(f);
-    let mut partitions = Vec::new();
-    #[allow(clippy::manual_flatten)]
-    for line in reader.lines() {
-      if let Ok(line) = line {
-        // skip first 2 lines
-        if line.is_empty() || line.starts_with("major") {
-          continue;
-        }
-        partitions.push(Partition::from(line.trim()));
-      }
-    }
-    partitions
-  }
-}
-
 mod utils {
   use std::{
     collections::HashMap,
@@ -550,11 +487,12 @@ mod utils {
 
   use crate::{
     collector::{DiskStats, Partition, SGXStats},
-    constants::{ENERGY_CSV_HEADER, IO_CSV_HEADER},
+    constants::{ENERGY_CSV_HEADER, IO_CSV_HEADER, TRACE_CSV_HEADER},
+    stats::{EnergySample, ToCsv},
     tracer::types::{disk_counter, io_counter},
   };
 
-  use super::{LowLevelSgxCounters, Metrics};
+  use super::{DeepTraceEvent, LowLevelSgxCounters};
 
   pub fn get_sgx_stats(stderr: &[u8], sgx_counters: LowLevelSgxCounters) -> SGXStats {
     let mut sgx_stats = extract_sgx_counters_from_stderr(stderr);
@@ -685,55 +623,57 @@ mod utils {
 
   pub fn save_energy_data(
     experiment_directory: &Path,
-    energy_stats: HashMap<String, Vec<String>>,
+    energy_stats: HashMap<String, Vec<EnergySample>>,
   ) -> Result<(), std::io::Error> {
-    for (filename, data) in energy_stats {
+    for (filename, samples) in energy_stats {
       let mut file = File::create(experiment_directory.join(format!("{}.csv", filename)))?;
       writeln!(file, "{}", ENERGY_CSV_HEADER)?;
-      file.write_all(data.join("\n").as_bytes())?;
+      let csv_lines: Vec<String> = samples
+        .iter()
+        .flat_map(|sample| sample.to_csv_rows())
+        .collect();
+      file.write_all(csv_lines.join("\n").as_bytes())?;
     }
     Ok(())
   }
 
   pub fn save_io_metrics(
     experiment_directory: &Path,
-    metrics: &Metrics,
+    metrics: &super::Metrics,
   ) -> Result<(), std::io::Error> {
-    let mut file = File::create(experiment_directory.join("io.csv"))?;
+    let io_path = experiment_directory.join("io.csv");
+    let mut file = File::create(&io_path)?;
     writeln!(file, "{}", IO_CSV_HEADER)?;
     if let Some(sgx) = &metrics.sgx_stats {
-      writeln!(file, "sgx_enter,#,{},,", sgx.eenter)?;
-      writeln!(file, "sgx_eexit,#,{},,", sgx.eexit)?;
-      writeln!(file, "sgx_aexit,#,{},,", sgx.aexit)?;
-      writeln!(file, "sgx_async_signals,#,{},,", sgx.async_signals)?;
-      writeln!(file, "sgx_sync_signals,#,{},,", sgx.sync_signals)?;
-      writeln!(
-        file,
-        "sgx_encl_load_page,#,{},,",
-        sgx.counters.encl_load_page
-      )?;
-      writeln!(file, "sgx_encl_wb,#,{},,", sgx.counters.encl_wb)?;
-      writeln!(file, "sgx_vma_access,#,{},,", sgx.counters.vma_access)?;
-      writeln!(file, "sgx_vma_fault,#,{},,", sgx.counters.vma_fault)?;
+      // Use the to_csv_rows method for the low-level SGX counters.
+      for row in sgx.counters.to_csv_rows() {
+        writeln!(file, "{}", row)?;
+      }
     }
     writeln!(file, "sys_read,#,{},,", metrics.sys_read_count)?;
     writeln!(file, "sys_read,ns,{},,", metrics.sys_read_avg)?;
     writeln!(file, "sys_write,#,{},,", metrics.sys_write_count)?;
     writeln!(file, "sys_write,ns,{},,", metrics.sys_write_avg)?;
 
+    // Now use the DiskStats to_csv_rows method.
     for stats in &metrics.disk_stats {
-      writeln!(file, "disk_write_seq,%,{},{}", stats.perc_seq, stats.name)?;
-      writeln!(
-        file,
-        "disk_write_rand,%,{},{}",
-        stats.perc_random, stats.name
-      )?;
-      writeln!(
-        file,
-        "disk_tot_written_bytes,%,{},{}",
-        stats.bytes, stats.name
-      )?;
+      for row in stats.to_csv_rows() {
+        writeln!(file, "{}", row)?;
+      }
     }
+    Ok(())
+  }
+
+  pub fn save_deep_stats(
+    experiment_directory: &Path,
+    stats: Vec<DeepTraceEvent>,
+  ) -> Result<(), std::io::Error> {
+    let trace_path = experiment_directory.join("trace.csv");
+    let mut file = File::create(&trace_path)?;
+    writeln!(file, "{}", TRACE_CSV_HEADER)?;
+    // Use the new `to_csv_rows` method from our types.
+    let csv_rows: Vec<String> = stats.iter().flat_map(|e| e.to_csv_rows()).collect();
+    fs::write(trace_path, csv_rows.join("\n"))?;
     Ok(())
   }
 
@@ -766,7 +706,7 @@ mod test {
 
   use tempfile::TempDir;
 
-  use super::{DefaultCollector, Partition};
+  use super::DefaultCollector;
 
   #[test]
   fn test_collector() {
@@ -795,14 +735,5 @@ mod test {
         assert!(iter_directory.join(format!("{}.csv", name)).is_file())
       }
     }
-  }
-
-  #[test]
-  fn test_partition_from_string() {
-    let raw = r#" 259        0  250059096 nvme0n1"#;
-    let partition = Partition::from(raw);
-
-    assert_eq!(partition.name, "nvme0n1");
-    assert_eq!(partition.dev, 271581184);
   }
 }

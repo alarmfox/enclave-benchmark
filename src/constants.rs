@@ -39,8 +39,9 @@ sgx.allowed_files = [
 ]
 "#;
 
-pub const ENERGY_CSV_HEADER: &str = "timestamp (microseconds),energy (microjoule)";
+pub const ENERGY_CSV_HEADER: &str = "timestamp (us),energy (microjoule)";
 pub const IO_CSV_HEADER: &str = "dimension,unit,value,description";
+pub const TRACE_CSV_HEADER: &str = "timestamp (ns),event";
 pub const DEFAULT_PERF_EVENTS: [&str; 28] = [
   "user_time",
   "system_time",

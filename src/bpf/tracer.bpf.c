@@ -4,6 +4,7 @@
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
+#include <bpf/bpf_core_read.h>
 #include "core_fixes.bpf.h"
 #include "maps.bpf.h"
 #include "tracer.h"
@@ -13,7 +14,7 @@ const volatile bool deep_trace = false;
 
 struct {
   __uint(type, BPF_MAP_TYPE_RINGBUF);
-  __uint(max_entries, 1024 * 1000);
+  __uint(max_entries, 1 << 20);
 } events SEC(".maps");
 
 struct {
@@ -54,21 +55,20 @@ struct {
 static __always_inline int snd_trace_event(__u32 evt) {
   u32 pid = (u32)bpf_get_current_pid_tgid();
 
-  if (pid != targ_pid) {
-    return 0;
-  }
+  /*if (pid != targ_pid) {*/
+  /*  return 0;*/
+  /*}*/
 
   u64 ts = bpf_ktime_get_ns();
   struct event *rb_event =
       bpf_ringbuf_reserve(&events, sizeof(struct event), 0);
 
   if (!rb_event) {
-    // if bpf_ringbuf_reserve fails, print an error message and return
     bpf_printk("bpf_ringbuf_reserve failed\n");
     return 1;
   }
 
-  rb_event->type = evt;
+  rb_event->ev_type = evt;
   rb_event->timestamp = ts;
 
   bpf_ringbuf_submit(rb_event, 0);
@@ -126,8 +126,7 @@ static __always_inline int record_start_ts() {
 SEC("tracepoint/syscalls/sys_enter_read")
 int trace_enter_read(struct trace_event_raw_sys_enter *ctx) {
   if (deep_trace) {
-    bpf_printk("bpf_ringbuf read");
-    return record_start_ts() || snd_trace_event(EVENT_READ_MEM);
+    return record_start_ts() || snd_trace_event(EVENT_SYS_READ);
   }
   return record_start_ts();
 }
@@ -136,7 +135,7 @@ int trace_enter_read(struct trace_event_raw_sys_enter *ctx) {
 SEC("tracepoint/syscalls/sys_enter_write")
 int trace_enter_write(struct trace_event_raw_sys_enter *ctx) {
   if (deep_trace) {
-    return record_start_ts() || snd_trace_event(EVENT_READ_MEM);
+    return record_start_ts() || snd_trace_event(EVENT_SYS_WRITE);
   }
   return record_start_ts();
 }
@@ -154,23 +153,20 @@ int trace_exit_write(struct trace_event_raw_sys_enter *ctx) {
 }
 
 SEC("tracepoint/block/block_rq_complete")
-int handle__block_rq_complete(void *args) {
+int handle__block_rq_complete(struct trace_event_raw_block_rq_completion *ctx) {
   struct disk_counter *counterp, zero = {};
   sector_t sector;
   u32 nr_sector;
   u32 dev;
+  __u32 ev_type = (ctx->rwbs[0] == 'R') ? EVENT_READ_DISK : EVENT_WRITE_DISK;
 
-  if (has_block_rq_completion()) {
-    struct trace_event_raw_block_rq_completion___x *ctx = args;
-    sector = BPF_CORE_READ(ctx, sector);
-    nr_sector = BPF_CORE_READ(ctx, nr_sector);
-    dev = BPF_CORE_READ(ctx, dev);
-  } else {
-    struct trace_event_raw_block_rq_complete___x *ctx = args;
-    sector = BPF_CORE_READ(ctx, sector);
-    nr_sector = BPF_CORE_READ(ctx, nr_sector);
-    dev = BPF_CORE_READ(ctx, dev);
+  if (deep_trace) {
+    return snd_trace_event(ev_type);
   }
+
+  sector = BPF_CORE_READ(ctx, sector);
+  nr_sector = BPF_CORE_READ(ctx, nr_sector);
+  dev = BPF_CORE_READ(ctx, dev);
 
   counterp = bpf_map_lookup_or_try_init(&counters, &dev, &zero);
   if (!counterp)
@@ -186,6 +182,40 @@ int handle__block_rq_complete(void *args) {
   return 0;
 }
 
+// eBPF program attached to the block_rq_issue tracepoint
+
+// kernel memory
+SEC("tracepoint/kmem/mm_page_alloc")
+int trace_kmem_page_alloc(void *args) {
+  if (deep_trace) {
+    return snd_trace_event(EVENT_MM_PAGE_ALLOC);
+  }
+  return 0;
+}
+
+SEC("tracepoint/kmem/mm_page_free")
+int trace_kmem_page_free(void *args) {
+  if (deep_trace) {
+    return snd_trace_event(EVENT_MM_PAGE_FREE);
+  }
+  return 0;
+}
+
+SEC("tracepoint/kmem/kmalloc")
+int trace_kmalloc(void *args) {
+  if (deep_trace) {
+    return snd_trace_event(EVENT_KMALLOC);
+  }
+  return 0;
+}
+
+SEC("tracepoint/kmem/kfree")
+int trace_kfree(void *args) {
+  if (deep_trace) {
+    return snd_trace_event(EVENT_KFREE);
+  }
+  return 0;
+}
 #ifndef EB_SKIP_SGX
 // Helper: Increment the counter for a given key.
 static __always_inline int increment_sgx_counter(u32 field_offset) {
