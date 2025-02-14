@@ -10,6 +10,11 @@ monitoring in 3 threads:
 - eBPF collector: runs eBPF programs and collects low-level stats;
 - energy monitor: polls energy consumption;
 - performance counters: runs perf in a separate process;
+- deep tracing: when enabled logs from major events:
+
+  * disks read/write;
+  * system read/write;
+  * kmalloc/kmem;
 
 The application entry point is a `toml` file that contains a list of programs and general
 settings. For example, it looks like:
@@ -23,6 +28,7 @@ settings. For example, it looks like:
   num_threads = [1, 2, 8]
   extra_perf_events = ["cpu-clock"]
   debug = false
+  deep_trace = true
 
   [[tasks]]
   executable = "/usr/bin/make"
@@ -41,6 +47,7 @@ On each iteration, it will be populated with an element from `globals.num_thread
 experiment with different paths from `storage_type` (non-Gramine applications always
 have a simple storage).
 
+If `deep_trace = true`, the application is executed one more time collecting extra tracing metrics.
 .. index:: eBPF
 
 Low-level tracing
@@ -123,6 +130,41 @@ inspected with the following program.
     if (counter) {
         __sync_fetch_and_add(counter, 1);
     }
+
+    return 0;
+  }
+
+
+Extra metrics
+^^^^^^^^^^^^^
+When `deep_trace = true`, the application logs system events regaring memory. This 
+is achieved leveraging the `BPF_MAP_RINGBUF` data structure implemented in the Linux 
+kernel. The ringbuffer sends objects from kernel to user space aynchronously. The 
+example is taken from `src/bpf/tracer.bpf.c`.
+
+.. code:: c
+
+  struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 1 << 20);
+  } events SEC(".maps");
+
+  static __always_inline int snd_trace_event(__u32 evt) {
+    u32 pid = (u32)bpf_get_current_pid_tgid();
+
+    u64 ts = bpf_ktime_get_ns();
+    struct event *rb_event =
+        bpf_ringbuf_reserve(&events, sizeof(struct event), 0);
+
+    if (!rb_event) {
+      bpf_printk("bpf_ringbuf_reserve failed\n");
+      return 1;
+    }
+
+    rb_event->ev_type = evt;
+    rb_event->timestamp = ts;
+
+    bpf_ringbuf_submit(rb_event, 0);
 
     return 0;
   }
@@ -253,6 +295,14 @@ columns:
 
 - timestamp: when the measurement occurred in nanoseconds;
 - microjoule: value of the `energy_uj` file 
+
+Disk energy consumption
+^^^^^^^^^^^^^^^^^^^^^^^
+It's very hard to determine disk energy consumption as there is no Linux standard. 
+An estimation can be made using the aggregated counters and the `deep_trace` execution.
+Based on disk model, specification can say what is the average power consumption of  
+writing/reading a block. This information can be combined with read/write counters to 
+obtain useful metrics.
 
 Interfacing with Gramine
 ------------------------

@@ -86,6 +86,10 @@ The `[globals]` section defines settings that apply to all benchmark runs.
 - **debug** (boolean)  
   If `true`, enables debug logging for more detailed output.
 
+- **deep_trace** (boolean)  
+  If `true`, enables an extra experiment with tracing enabled. This can be very slow.
+
+
 Tasks
 """""
 
