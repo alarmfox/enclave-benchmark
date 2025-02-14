@@ -58,14 +58,23 @@ sudo ./enclave-benchmark -v -c examples/iobound.toml
 The `test` directory will look like:
 
 ```sh
-tree test
+cd test
+tree .
 
-test
 ├── dd
 │   ├── gramine-sgx
 │   │   └── dd-1-256M
 │   │       ├── dd-1-256M-encrypted
-│   │       │   └── 1
+│   │       │   ├── 1
+│   │       │   │   ├── io.csv
+│   │       │   │   ├── package-0-core.csv
+│   │       │   │   ├── package-0.csv
+│   │       │   │   ├── package-0-dram.csv
+│   │       │   │   ├── package-0-uncore.csv
+│   │       │   │   ├── perf.csv
+│   │       │   │   ├── stderr
+│   │       │   │   └── stdout
+│   │       │   └── deep-trace
 │   │       │       ├── io.csv
 │   │       │       ├── package-0-core.csv
 │   │       │       ├── package-0.csv
@@ -73,9 +82,19 @@ test
 │   │       │       ├── package-0-uncore.csv
 │   │       │       ├── perf.csv
 │   │       │       ├── stderr
-│   │       │       └── stdout
+│   │       │       ├── stdout
+│   │       │       └── trace.csv
 │   │       ├── dd-1-256M-tmpfs
-│   │       │   └── 1
+│   │       │   ├── 1
+│   │       │   │   ├── io.csv
+│   │       │   │   ├── package-0-core.csv
+│   │       │   │   ├── package-0.csv
+│   │       │   │   ├── package-0-dram.csv
+│   │       │   │   ├── package-0-uncore.csv
+│   │       │   │   ├── perf.csv
+│   │       │   │   ├── stderr
+│   │       │   │   └── stdout
+│   │       │   └── deep-trace
 │   │       │       ├── io.csv
 │   │       │       ├── package-0-core.csv
 │   │       │       ├── package-0.csv
@@ -83,9 +102,19 @@ test
 │   │       │       ├── package-0-uncore.csv
 │   │       │       ├── perf.csv
 │   │       │       ├── stderr
-│   │       │       └── stdout
+│   │       │       ├── stdout
+│   │       │       └── trace.csv
 │   │       ├── dd-1-256M-untrusted
-│   │       │   └── 1
+│   │       │   ├── 1
+│   │       │   │   ├── io.csv
+│   │       │   │   ├── package-0-core.csv
+│   │       │   │   ├── package-0.csv
+│   │       │   │   ├── package-0-dram.csv
+│   │       │   │   ├── package-0-uncore.csv
+│   │       │   │   ├── perf.csv
+│   │       │   │   ├── stderr
+│   │       │   │   └── stdout
+│   │       │   └── deep-trace
 │   │       │       ├── io.csv
 │   │       │       ├── package-0-core.csv
 │   │       │       ├── package-0.csv
@@ -93,7 +122,8 @@ test
 │   │       │       ├── package-0-uncore.csv
 │   │       │       ├── perf.csv
 │   │       │       ├── stderr
-│   │       │       └── stdout
+│   │       │       ├── stdout
+│   │       │       └── trace.csv
 │   │       ├── dd.manifest.sgx
 │   │       ├── dd.sig
 │   │       ├── encrypted
@@ -102,15 +132,26 @@ test
 │   │           └── a.zero
 │   └── no-gramine-sgx
 │       └── dd-1
-│           ├── 1
-│           │   ├── io.csv
-│           │   ├── package-0-core.csv
-│           │   ├── package-0.csv
-│           │   ├── package-0-dram.csv
-│           │   ├── package-0-uncore.csv
-│           │   ├── perf.csv
-│           │   ├── stderr
-│           │   └── stdout
+│           ├── dd-1-untrusted
+│           │   ├── 1
+│           │   │   ├── io.csv
+│           │   │   ├── package-0-core.csv
+│           │   │   ├── package-0.csv
+│           │   │   ├── package-0-dram.csv
+│           │   │   ├── package-0-uncore.csv
+│           │   │   ├── perf.csv
+│           │   │   ├── stderr
+│           │   │   └── stdout
+│           │   └── deep-trace
+│           │       ├── io.csv
+│           │       ├── package-0-core.csv
+│           │       ├── package-0.csv
+│           │       ├── package-0-dram.csv
+│           │       ├── package-0-uncore.csv
+│           │       ├── perf.csv
+│           │       ├── stderr
+│           │       ├── stdout
+│           │       └── trace.csv
 │           └── storage
 │               └── a.zero
 └── private_key.pem
@@ -130,6 +171,7 @@ num_threads = [2, 4]
 extra_perf_events = ["cpu-clock"]
 energy_sample_interval = "100ms"
 debug = true
+deep_trace = true
 
 [[tasks]]
 pre_run_executable = "/usr/bin/echo"
@@ -154,6 +196,41 @@ storage_type = ["encrypted", "tmpfs", "untrusted"]
 A workload file has two sections:
 * globals: parameters used to generate experiments, output directory, custom perf_events, debug, etc.;
 * task: each task is a program to benchmark and has an executable and args;
+
+### Deep trace
+When `deep_trace = true`, the application does an extra excution collecting events such as:
+* kernel memory allocation;
+* disk access;
+* system read/write operations;
+
+Precise events are:
+* "sys-read",
+* "sys-write",
+* "mm-page-alloc",
+* "mm-page-free",
+* "kmalloc",
+* "kfree",
+* "disk-read",
+* "disk-write",
+
+Each event has a unique timestamp and results are collected in `trace.csv`.
+
+```
+timestamp (ns),event
+1402564790125152,sys-read
+1402564790127602,sys-read
+1402564790128530,sys-write
+1402564790130190,mem-read
+1402564790130191,mem-write
+1402564790130982,disk-read
+1402564790131739,disk-read
+1402564790132306,mm-page-alloc
+1402564790132574,mm-page-free
+1402564790133426,kmalloc
+1402564790133545,kfree
+```
+
+This are 
 
 ### Variables Expansion
 The `toml` file is dynamic. For example, if an application executes with a different number of threads, you can mark the parameter with the `{{ num_threads }}` placeholder. On each iteration, it will be populated with an element from `globals.num_threads` (see the `make` task in the example above).
