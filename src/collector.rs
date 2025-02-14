@@ -673,7 +673,8 @@ mod utils {
     writeln!(file, "{}", TRACE_CSV_HEADER)?;
     // Use the new `to_csv_rows` method from our types.
     let csv_rows: Vec<String> = stats.iter().flat_map(|e| e.to_csv_rows()).collect();
-    fs::write(trace_path, csv_rows.join("\n"))?;
+
+    write!(file, "{}", csv_rows.join("\n"))?;
     Ok(())
   }
 
