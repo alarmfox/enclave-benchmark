@@ -21,4 +21,3 @@ running on bare metal.
    inner-working
    installation
    usage
-
