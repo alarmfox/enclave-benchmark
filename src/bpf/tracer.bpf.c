@@ -55,10 +55,6 @@ struct {
 static __always_inline int snd_trace_event(__u32 evt) {
   u32 pid = (u32)bpf_get_current_pid_tgid();
 
-  /*if (pid != targ_pid) {*/
-  /*  return 0;*/
-  /*}*/
-
   u64 ts = bpf_ktime_get_ns();
   struct event *rb_event =
       bpf_ringbuf_reserve(&events, sizeof(struct event), 0);
@@ -160,8 +156,8 @@ int handle__block_rq_complete(struct trace_event_raw_block_rq_completion *ctx) {
   u32 dev;
   __u32 ev_type = (ctx->rwbs[0] == 'R') ? EVENT_READ_DISK : EVENT_WRITE_DISK;
 
-  if (deep_trace) {
-    return snd_trace_event(ev_type);
+  if (deep_trace && snd_trace_event(ev_type)) {
+    return 1;
   }
 
   sector = BPF_CORE_READ(ctx, sector);
