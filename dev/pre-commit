@@ -2,7 +2,12 @@
 
 set -eu
 
-modified_rust_files=$(git diff --cached --name-only | grep .rs || true)
+if [ "$(grep EB_SKIP_SGX src/bpf/tracer.h)" ]; then
+  echo "[Pre-commit] You forgot to remove EB_SKIP_SGX. Remove it to commit"
+  exit 1
+fi
+
+modified_rust_files=$(git diff --cached --name-only | grep '\.rs$' || true)
 
 if [ -z "$modified_rust_files" ]; then
   echo "[Pre-commit] No rust files modified"
