@@ -63,6 +63,7 @@ libbpf: failed to determine tracepoint 'syscalls/sys_enter_read' perf event ID: 
 libbpf: prog 'trace_enter_read': failed to create tracepoint 'syscalls/sys_enter_read' perf event: No such file or directory
 libbpf: prog 'trace_enter_read': failed to auto-attach: -2
 
+```
 It indicates that `debugfs` is not mounted. You can mount it with the following command:
 ```sh
 sudo mount -t debugfs none /sys/kernel/debug
