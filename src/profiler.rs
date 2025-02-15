@@ -22,6 +22,25 @@ use crate::{
   constants::MANIFEST,
 };
 
+/// A `Profiler` is responsible for managing the benchmarking of tasks within an SGX enclave environment.
+///
+/// This structure is initialized with various configuration parameters such as the number of threads,
+/// enclave sizes, output directory, and a collector for gathering profiling data. It also manages
+/// the creation and storage of RSA private keys used for signing the enclave.
+///
+/// # Fields
+///
+/// * `private_key_path` - The file path where the RSA private key is stored.
+/// * `output_directory` - The directory where profiling results and other output files are stored.
+/// * `num_threads` - A vector specifying the number of threads to be used for each profiling task.
+/// * `enclave_size` - A vector specifying the sizes of the enclaves to be used for profiling.
+/// * `collector` - An `Arc` wrapped `DefaultCollector` used for collecting profiling data.
+/// * `debug` - A boolean flag indicating whether debugging is enabled.
+///
+/// # Methods
+///
+/// * `profile` - Initiates the benchmarking of a given task. This method configures the environment,
+///   builds and signs the enclave, and executes the task while collecting profiling data.
 #[derive(Debug)]
 pub struct Profiler {
   private_key_path: PathBuf,
@@ -31,6 +50,7 @@ pub struct Profiler {
   collector: Arc<DefaultCollector>,
   debug: bool,
 }
+
 #[derive(Debug, Clone)]
 struct GramineMetadata {
   manifest_path: PathBuf,
