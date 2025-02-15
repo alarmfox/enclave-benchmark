@@ -6,4 +6,4 @@
 /**/build
 /**/.venv
 src/bpf/vmlinux.h
-./docs/web/source/code_docs.rst
+docs/web/source/code_docs.rst

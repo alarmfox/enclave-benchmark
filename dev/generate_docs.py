@@ -96,8 +96,6 @@ subprocess.run([
     "json"
     ], 
     cwd=PROJECT_ROOT,
-   stderr=subprocess.PIPE,
-   stdout=subprocess.PIPE
 )
 print("done")
 
@@ -128,8 +126,6 @@ subprocess.run([
     "html", 
     ], 
     cwd=DOCS_SOURCE,
-    stderr=subprocess.PIPE,
-    stdout=subprocess.PIPE
 )
 print("done")
 
