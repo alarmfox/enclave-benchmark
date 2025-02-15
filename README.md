@@ -230,8 +230,6 @@ timestamp (ns),event
 1402564790133545,kfree
 ```
 
-This are 
-
 ### Variables Expansion
 The `toml` file is dynamic. For example, if an application executes with a different number of threads, you can mark the parameter with the `{{ num_threads }}` placeholder. On each iteration, it will be populated with an element from `globals.num_threads` (see the `make` task in the example above).
 
