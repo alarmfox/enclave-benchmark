@@ -42,8 +42,8 @@ jobs:
       if: steps.cache.outputs.cache-hit == 'true'
       run: |
         # install deps
-        sudo apt-get update && sudo apt-get install -y build-essential clang \
-        clang llvm-dev python3-dev libbpf-dev git clang autoconf bison gawk meson nasm \
+        sudo apt-get update && sudo apt-get install -y build-essential \
+        clang llvm-dev python3-dev libbpf-dev git autoconf bison gawk meson nasm \
         pkg-config python3 python3-click python3-jinja2 python3-pyelftools python3-tomli \
         python3-tomli-w python3-voluptuous wget cmake libprotobuf-c-dev protobuf-c-compiler \
         protobuf-compiler python3-cryptography python3-pip python3-protobuf curl linux-tools-`uname -r`

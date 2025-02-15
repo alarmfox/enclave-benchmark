@@ -37,7 +37,8 @@ jobs:
         toolchain: nightly
     - name: Install dependencies
       run: |
-          sudo apt-get install -y libelf-dev make linux-tools-`uname -r`
+          sudo apt-get install -y clang llvm-dev libbpf-dev \
+          libelf-dev make linux-tools-`uname -r`
           pip install -r docs/web/requirements.txt 
           bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
     - name: Sphinx Build HTML
