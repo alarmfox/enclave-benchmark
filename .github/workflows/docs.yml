@@ -2,7 +2,11 @@ name: "Sphinx: Render docs"
 
 on: 
   push:
+    branch:
+      - main
   pull-request:
+    branch:
+      - main
   
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
