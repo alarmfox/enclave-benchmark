@@ -14,7 +14,7 @@ release = ''
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ["sphinx_copybutton", "sphinx_rtd_dark_mode"]
+extensions = ["sphinx_copybutton", "sphinx_rtd_dark_mode", "sphinx_toolbox.collapse"]
 
 templates_path = ['_templates']
 exclude_patterns = []

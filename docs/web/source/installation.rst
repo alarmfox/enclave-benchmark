@@ -22,12 +22,12 @@ Host setup
 
 There are 3 possibile setups:
 
-- using the script in `dev/setup_host.sh`;
+- using the script in `dev/setup_host.sh` (working only on Ubuntu 22.04 and 24.04);
 - installing manually dependencies on Ubuntu 24.04;
 - creating a Docker image;
 
-Using a script
-^^^^^^^^^^^^^^
+Using a script (Ubuntu 22.04 and 24.04 only)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 A quick setup can be done using the script in `dev/setup_host.sh`:
 
 .. code:: sh

@@ -35,7 +35,7 @@ jobs:
           sudo apt-get install -y make
           pip install -r docs/web/requirements.txt 
     - name: Sphinx Build HTML
-      run: make -C docs/web html
+      run: python ./dev/generate_docs.py . docs/web/
     - name: Upload artifacts
       id: deployment
       uses: actions/upload-pages-artifact@v3
