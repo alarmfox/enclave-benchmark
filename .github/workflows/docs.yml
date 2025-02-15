@@ -40,7 +40,6 @@ jobs:
       run: |
           sudo apt-get install -y clang llvm-dev libbpf-dev \
           libelf-dev make linux-tools-`uname -r` python3-dev \
-          build-essential
 
           pip install -r docs/web/requirements.txt 
           bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
