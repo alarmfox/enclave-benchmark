@@ -5,9 +5,9 @@ output_directory = "test"
 num_threads = [1]
 extra_perf_events = ["cpu-clock"]
 debug = false
-deep_trace = true
+deep_trace = false
 
 [[tasks]]
 executable = "/bin/dd"
-args = ["if=/dev/zero", "of={{ output_directory }}/a.zero", "count=1000000"]
+args = ["if=/dev/zero", "of={{ output_directory }}/a.zero", "count=100000"]
 storage_type = ["encrypted", "tmpfs", "untrusted"]
