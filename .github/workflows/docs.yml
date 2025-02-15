@@ -38,7 +38,7 @@ jobs:
         components: rustfmt
     - name: Install dependencies
       run: |
-          sudo apt-get install -y clang llvm-dev libbpf-dev \
+          sudo apt-get install -y clang libbpf-dev \
           libelf-dev make linux-tools-`uname -r` python3-dev \
 
           pip install -r docs/web/requirements.txt 
