@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4
     - name: Setup Pages
@@ -37,7 +37,7 @@ jobs:
         toolchain: nightly
     - name: Install dependencies
       run: |
-          sudo apt-get install -y make
+          sudo apt-get install -y libelf-dev make libbpf-dev linux-tools-`uname -r`
           pip install -r docs/web/requirements.txt 
     - name: Sphinx Build HTML
       run: python ./dev/generate_docs.py . docs/web/
