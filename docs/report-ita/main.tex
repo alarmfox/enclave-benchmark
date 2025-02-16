@@ -460,54 +460,230 @@ cleanup:
 
 \clearpage
 \section{Implementazione}
-Il sistema descritto in \cref{sec:requirements} è implementato in un'applicazione CLI in Rust. Il progetto si trova in \cite{eb-repo} , mentre la documentazione è disponibile in \cite{eb-docs}.
+Il sistema descritto in \cref{sec:requirements} è implementato in un'applicazione CLI in Rust. Il progetto si trova in \cite{eb-repo}, mentre la documentazione è disponibile in \cite{eb-docs}.
 \subsection{Architettura}
-L'architettura dell'applicazione è stata progettata per eseguire in maniera automatizzata una serie di esperimenti volti a misurare le prestazioni e il consumo energetico delle applicazioni target. Il sistema integra più moduli di monitoraggio, ognuno dei quali si occupa di raccogliere metriche specifiche durante l'esecuzione del programma. In particolare, l'applicazione si avvale di:
+L'architettura dell'applicazione è mostrata in \cref{fig:eb_cli_arch}. Il sistema utilizza diversi thread, ognuno dei quali si occupa di raccogliere metriche specifiche durante l'esecuzione del programma. In particolare, l'applicazione si avvale di:
 \begin{itemize}
   \item \textbf{eBPF collector}: un modulo che sfrutta eBPF per attaccare dei programmi al kernel, in modo da tracciare eventi a basso livello come le chiamate di sistema (ad esempio, \texttt{sys\_enter\_read}) e operazioni I/O. Questi dati vengono poi memorizzati in apposite strutture dati (mappe) e salvati in file CSV.
   \item \textbf{Energy monitor}: un thread dedicato che, mediante la tecnologia RAPL, esegue il polling dei contatori energetici disponibili nel kernel. Il monitoraggio viene effettuato leggendo i file relativi ai domini di potenza (ad es. \texttt{intel-rapl:0}, \texttt{intel-rapl:0:0}, ecc.) e salvando i dati con timestamp e consumo in microjoule.
   \item \textbf{Performance counters}: un processo esterno viene lanciato per sfruttare l'interfaccia \textit{perf} del kernel, consentendo la raccolta di contatori hardware e altri eventi di performance. I dati vengono raccolti in un file \texttt{perf.csv}.
-  \item \textbf{Deep tracing}: se abilitato, questo modulo effettua una raccolta di tracciamenti più dettagliati, registrando eventi rilevanti relativi ad operazioni su disco, allocazioni di memoria e altri eventi critici, mediante l'utilizzo del BPF ringbuffer.
 \end{itemize}
+
+\begin{figure}
+  \begin{center}
+    \includegraphics[width=0.95\textwidth]{./figures/ch3/eb_cli_arch.png}
+  \end{center}
+  \caption{Struttura generale dell'applicazione}\label{fig:eb_cli_arch.png}
+\end{figure}
 
 Gli esperimenti sono generati dinamicamente in base alla combinazione di parametri definiti nel file di configurazione, quali il numero di thread (\texttt{globals.num\_threads}), la dimensione dell'enclave (\texttt{globals.enclave\_size}) e, per le applicazioni basate su Gramine, il tipo di storage (\texttt{task.storage}). Ad ogni esperimento corrisponde una specifica directory contenente, oltre ai dati raccolti, il manifesto e la firma dell'enclave (per Gramine), e le directory per i file cifrati e non cifrati.
 
-\subsubsection{Installazione}
-L'installazione del sistema prevede la corretta configurazione dell'ambiente Linux, in particolare:
+\subsection{Installazione}
+Questa sezione illustra in dettaglio come preparare l'host e installare l'applicazione. Poiché Rust è supportato su tutte le principali piattaforme e sistemi operativi, il vincolo principale riguarda Gramine. Infatti, essendo Gramine costruito da sorgente (necessario per il profiling delle applicazioni) e supportato su ogni sistema compatibile con la piattaforma SGX, è fondamentale che il driver SGX sia incluso nel kernel. A partire dalla versione 5.11 del kernel Linux (con la configurazione \texttt{CONFIG\_X86\_SGX=y}), il supporto è abilitato di default.
+
+\subsubsection{Host Setup}
+Per preparare l'host esistono tre possibili approcci:
+
 \begin{itemize}
-  \item \textbf{Abilitazione di eBPF}: il kernel Linux deve essere compilato con il supporto a eBPF, necessario per eseguire in modo sicuro i programmi di tracciamento a basso livello. Questo richiede che siano abilitate le relative opzioni di configurazione, come illustrato nella documentazione ufficiale di eBPF.
-  \item \textbf{Supporto per i contatori di performance}: è indispensabile che il kernel supporti le opzioni \texttt{CONFIG\_PERF\_EVENT}, \texttt{CONFIG\_HW\_PERF\_EVENTS} e \texttt{CONFIG\_PROFILING} per poter utilizzare l'interfaccia \textit{perf} nella raccolta dei contatori hardware.
-  \item \textbf{Interfaccia RAPL}: per la misurazione del consumo energetico, il sistema deve essere in grado di accedere all'interfaccia RAPL (Running Average Power Limit) esposta in \texttt{/sys/devices/virtual/powercap/}.
-  \item \textbf{Strumenti per Gramine}: per le applicazioni basate su enclave SGX, è necessario installare gli strumenti di Gramine, inclusa la libreria Python \texttt{graminelibos}. Il processo di installazione comprende la generazione del manifesto a partire da un template in formato TOML, la verifica dei file fidati e la firma dell'enclave con una chiave privata.
+  \item \textbf{Utilizzo di uno script:} Per Ubuntu 22.04 e 24.04 è disponibile uno script rapido (\texttt{dev/setup\_host.sh}) che configura automaticamente l'ambiente. Per eseguirlo, lanciare:
+  \begin{verbatim}
+sudo ./dev/setup_host.sh
+  \end{verbatim}
+
+  \item \textbf{Installazione su bare metal:} Se si preferisce installare manualmente le dipendenze su Ubuntu 24.04, seguire i passaggi descritti di seguito.
+
+  \item \textbf{Creazione di un'immagine Docker:} È possibile creare un container Docker che includa l'ambiente di build, utile soprattutto se non si utilizza Ubuntu 24.04.
 \end{itemize}
 
-\subsubsection{Configurazione}
-La configurazione dell'applicazione avviene tramite un file in formato TOML che consente di specificare sia i parametri globali sia i task da eseguire. Tra i parametri globali vi sono:
-\begin{itemize}
-  \item \texttt{sample\_size}: il numero di volte in cui ogni esperimento deve essere ripetuto.
-  \item \texttt{enclave\_size}: una lista di dimensioni da assegnare all'enclave.
-  \item \texttt{num\_threads}: un array che definisce il numero di thread da utilizzare per ciascun esperimento.
-  \item \texttt{extra\_perf\_events}: ulteriori eventi di performance da monitorare.
-  \item \texttt{debug} e \texttt{deep\_trace}: flag per abilitare o disabilitare rispettivamente il debug e il tracciamento approfondito.
-\end{itemize}
-I task, invece, definiscono l'eseguibile da monitorare, gli argomenti da passare (con placeholder dinamici come \texttt{\{\{ num\_threads \}\}} e \texttt{\{\{ output\_directory \}\}}) e, per le applicazioni Gramine, il tipo di storage da utilizzare (ad es. \texttt{encrypted}, \texttt{tmpfs}, \texttt{untrusted}). Un esempio di configurazione è il seguente:
+\paragraph{Bare Metal}
+Per una configurazione manuale su Ubuntu 24.04, procedere come segue:
+
+\begin{enumerate}
+  \item \textbf{Abilitare SGX in BIOS:} Assicurarsi che la tecnologia Intel SGX sia abilitata nelle impostazioni del BIOS.
+
+  \item \textbf{Installare le dipendenze di build:} Queste dipendenze sono necessarie per compilare sia Gramine da sorgente che l'applicazione di benchmark. Eseguire:
+  \begin{verbatim}
+sudo apt-get install -y build-essential clang clang llvm-dev python3-dev \
+libbpf-dev git autoconf bison gawk meson nasm pkg-config python3 python3-click \
+python3-jinja2 python3-pyelftools python3-tomli python3-tomli-w python3-voluptuous \
+wget cmake libprotobuf-c-dev protobuf-c-compiler protobuf-compiler python3-cryptography \
+python3-pip python3-protobuf curl linux-tools-$(uname -r)
+  \end{verbatim}
+
+  \item \textbf{Installare il software SGX:} Aggiungere il repository e installare i pacchetti necessari:
+  \begin{verbatim}
+echo 'deb [signed-by=/etc/apt/keyrings/intel-sgx-keyring.asc arch=amd64] 
+https://download.01.org/intel-sgx/sgx_repo/ubuntu noble main' | \
+sudo tee /etc/apt/sources.list.d/intel-sgx.list
+wget https://download.01.org/intel-sgx/sgx_repo/ubuntu/intel-sgx-deb.key
+cat intel-sgx-deb.key | sudo tee /etc/apt/keyrings/intel-sgx-keyring.asc > /dev/null
+sudo apt-get update
+sudo apt-get install libsgx-dcap-quote-verify-dev libsgx-epid libsgx-quote-ex libsgx-dcap-ql
+  \end{verbatim}
+
+  \item \textbf{Installare la toolchain Rust:} Utilizzare \texttt{rustup} per installare Rust:
+  \begin{verbatim}
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  \end{verbatim}
+\end{enumerate}
+
+\subsubsection{Building di Gramine}
+Per compilare Gramine (versione 1.8) da sorgente, seguire questi passaggi:
+
+\begin{enumerate}
+  \item \textbf{Recuperare il codice sorgente:}
+  \begin{verbatim}
+git clone --depth=1 --branch v1.8 https://github.com/gramineproject/gramine.git
+cd gramine
+git checkout v1.8
+  \end{verbatim}
+
+  \item \textbf{Configurare, compilare e installare Gramine:} Utilizzare \texttt{meson} per la configurazione e la compilazione. È importante impostare il parametro \texttt{buildtype} a \texttt{debugoptimized} (oppure \texttt{debug}) per abilitare il profiling delle applicazioni Gramine. Se si desidera utilizzare \texttt{musl} come libc, passare l'argomento \texttt{-Dlibc=musl}.
+  \begin{verbatim}
+meson setup build/ --buildtype=debugoptimized -Dsgx=enabled -Ddcap=enabled -Dlibc=glibc
+meson compile -C build/
+sudo meson compile -C build/ install
+  \end{verbatim}
+\end{enumerate}
+
+\subsubsection{Creazione di un Container Docker}
+Se non si utilizza Ubuntu 24.04, è possibile creare un'immagine Docker utilizzando il file \texttt{dev/Dockerfile}. Per costruire l'immagine, eseguire:
+\begin{verbatim}
+docker build -t enclave-benchmark-dev - <dev/Dockerfile
+\end{verbatim}
+Il processo di build può richiedere tempo, poiché compila \texttt{perf} e \texttt{libbpf} a partire dal codice sorgente del kernel host. Per avviare un container Docker (assicurarsi di utilizzare l'opzione \texttt{--privileged} per accedere ai contatori di performance) e mappare il dispositivo SGX (\texttt{/dev/sgx\_enclave}), utilizzare:
+\begin{verbatim}
+docker run -it -w /app -v $(pwd):/app --privileged --device /dev/sgx_enclave\
+--name enclave-benchmark enclave-benchmark-dev
+\end{verbatim}
+
+\subsubsection{Compilazione dell'applicazione da sorgente}
+L'applicazione è attualmente installabile \textbf{solo} compilando il codice sorgente, in quanto dipende fortemente dal sistema operativo host. Per compilare l'applicazione:
+
+\begin{enumerate}
+  \item \textbf{Clonare il repository:}
+  \begin{verbatim}
+git clone https://github.com/alarmfox/enclave-benchmark.git
+  \end{verbatim}
+
+  \item \textbf{Installare il toolchain Rust:} Installare Rust tramite \url{https://rustup.rs/} seguendo le istruzioni fornite.
+
+  \item \textbf{Generare il file \texttt{vmlinux.h}:} Questo file è necessario per compilare i programmi eBPF. Eseguire:
+  \begin{verbatim}
+bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
+  \end{verbatim}
+
+  \item \textbf{Compilare l'applicazione:} Per una build ottimizzata, eseguire:
+  \begin{verbatim}
+cargo build --release
+  \end{verbatim}
+  (Rimuovere il flag \texttt{--release} per una compilazione più rapida ma non ottimizzata.)
+
+  \item \textbf{(Opzionale) Copiare l'eseguibile:} Se necessario, è possibile copiare l'eseguibile in una posizione a scelta:
+  \begin{verbatim}
+cp target/<debug|release>/enclave-benchmark .
+  \end{verbatim}
+
+  \item \textbf{Eseguire l'applicazione:} Verificare l'installazione eseguendo:
+  \begin{verbatim}
+./enclave-benchmark -V
+  \end{verbatim}
+  L'output atteso dovrebbe essere simile a:
+  \begin{verbatim}
+enclave-benchmark 0.1.0
+  \end{verbatim}
+\end{enumerate}
+
+\subsection{Utilizzo}
+L'applicazione richiede un file di configurazione in formato \texttt{TOML} per eseguire una serie di benchmark in sequenza. I file di esempio si trovano nella directory \texttt{examples}. Ad esempio, il file \texttt{examples/full.toml} è strutturato come segue:
+
 \begin{verbatim}
 [globals]
-sample_size = 4
-enclave_size = ["256M", "512M"]
-output_directory = "results"
-num_threads = [1, 2, 8]
+sample_size = 3
+enclave_size = ["64M", "128M"]
+output_directory = "/tmp/test"
+num_threads = [1, 2]
 extra_perf_events = ["cpu-clock"]
-debug = false
-deep_trace = true
+energy_sample_interval = "250ms"
+debug = true
 
 [[tasks]]
+executable = "/bin/dd"
+args = ["if=/dev/zero", "of=/dev/null", "count=10000"]
+
+[[tasks]]
+pre_run_executable = "/usr/bin/echo"
+pre_run_args = ["Starting make"]
+
 executable = "/usr/bin/make"
 args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "app", "output={{ output_directory }}"]
+
+post_run_executable = "/usr/bin/make"
+post_run_args = ["-C", "examples/basic-c-app", "clean", "output={{ output_directory }}"]
+
+[[tasks]]
+executable = "examples/simple-writer/writer"
+args = ["{{ output_directory }}"]
 storage_type = ["encrypted", "tmpfs", "untrusted"]
 \end{verbatim}
 
-Durante la fase di configurazione, il sistema genera in modo automatico tutte le combinazioni possibili dei parametri specificati, creando una struttura di directory per ciascun esperimento. Nel caso di applicazioni basate su Gramine, vengono inoltre generati il manifesto dell'enclave e il file di firma, insieme alle directory necessarie per i file cifrati e non cifrati.
+\subsubsection*{Specifiche del File di Input}
+Il file di configurazione \texttt{TOML} è organizzato in due sezioni principali: \texttt{[globals]} e \texttt{[[tasks]]}.
+
+\paragraph{Configurazione Globale (\texttt{[globals]})}
+Questa sezione definisce le impostazioni che si applicano a tutte le esecuzioni dei benchmark:
+\begin{itemize}
+  \item \textbf{sample\_size} (integer): specifica il numero di ripetizioni per ogni esperimento.
+  \item \textbf{enclave\_size} (lista di stringhe): definisce le diverse dimensioni della memoria per l'enclave (es. \texttt{"64M"} e \texttt{"128M"}).
+  \item \textbf{output\_directory} (stringa): directory in cui vengono salvati i risultati e gli output. Questo valore può essere referenziato nei task tramite il placeholder \texttt{\{\{ output\_directory \}\}}.
+  \item \textbf{num\_threads} (lista di interi): specifica il numero di thread da utilizzare; il placeholder \texttt{\{\{ num\_threads \}\}} viene espanso ad ogni esecuzione.
+  \item \textbf{extra\_perf\_events} (lista di stringhe): consente di definire eventi di performance aggiuntivi (ad esempio, \texttt{"cpu-clock"}).
+  \item \textbf{energy\_sample\_interval} (stringa): imposta l'intervallo di campionamento per la misurazione del consumo energetico, includendo l'unità di tempo (ad esempio, \texttt{"250ms"}).
+  \item \textbf{debug} (booleano): abilita l'output di debug se impostato a \texttt{true}.
+  \item \textbf{deep\_trace} (booleano): se abilitato, esegue un'ulteriore iterazione con tracciamento approfondito, il che può rallentare l'esecuzione.
+\end{itemize}
+
+\paragraph{Definizione dei Task (\texttt{[[tasks]]})}
+Ogni sezione \texttt{[[tasks]]} definisce un task specifico, ovvero un comando o un insieme di comandi da eseguire nel benchmark:
+\begin{itemize}
+  \item \textbf{executable} (stringa): il percorso all'eseguibile da testare (ad esempio, \texttt{"/bin/dd"}).
+  \item \textbf{args} (lista di stringhe): gli argomenti da passare all'eseguibile.\\
+  Ad esempio, \texttt{["if=/dev/zero", "of=/dev/null", "count=10000"]} esegue il comando \texttt{dd} con questi parametri.
+\end{itemize}
+
+\paragraph{Campi Opzionali per i Task}
+È possibile specificare ulteriori comandi da eseguire prima e dopo il task principale:
+\begin{itemize}
+  \item \textbf{pre\_run\_executable} e \textbf{pre\_run\_args}: eseguono un comando preliminare (ad esempio, \texttt{"/usr/bin/echo"} per stampare un messaggio).
+  \item \textbf{post\_run\_executable} e \textbf{post\_run\_args}: eseguono un comando dopo il task principale, utile per operazioni di pulizia o post-processing (ad esempio, \texttt{make clean}).
+  \item \textbf{storage\_type}: specifica le modalità di storage da testare nelle applicazioni basate su Gramine, come \texttt{"encrypted"}, \texttt{"tmpfs"} e \texttt{"untrusted"}.
+\end{itemize}
+
+\paragraph{Espansione delle Variabili}
+Il file di configurazione supporta dei \emph{placeholder} per permettere l'espansione dinamica di variabili:
+\begin{itemize}
+  \item \texttt{\{\{ output\_directory \}\}}: viene sostituito con il valore definito in \texttt{[globals]}.
+  \item \texttt{\{\{ num\_threads \}\}}: viene sostituito con ciascun valore specificato nell'array \texttt{num\_threads} per ogni esecuzione.
+\end{itemize}
+Questo meccanismo consente di generare automaticamente diverse combinazioni di esperimenti senza dover ripetere manualmente le configurazioni.
+
+\subsubsection*{Esecuzione dell'Applicazione}
+L'applicazione deve essere eseguita con privilegi di \textbf{root}. Un esempio di utilizzo in linea di comando è il seguente:
+
+\begin{verbatim}
+./enclave-benchmark -c <path/to/config.toml>
+\end{verbatim}
+
+Le opzioni della CLI includono:
+\begin{itemize}
+  \item \texttt{-v}: attiva l'output di debug.
+  \item \texttt{-c, --config <CONFIG>}: specifica il percorso del file di configurazione.
+  \item \texttt{--force}: rimuove eventuali directory di output preesistenti.
+  \item \texttt{-h, --help}: mostra il messaggio di aiuto.
+  \item \texttt{-V, --version}: visualizza la versione dell'applicazione.
+\end{itemize}
+
+In sintesi, grazie a questo sistema di configurazione dinamica, l'applicazione è in grado di eseguire automaticamente una molteplicità di esperimenti variando i parametri specificati nel file \texttt{TOML}. Questo approccio flessibile semplifica la gestione e l'analisi delle prestazioni delle applicazioni, permettendo di ottenere dati dettagliati in modo sistematico.
 
 \clearpage
 \pagestyle{plain}
