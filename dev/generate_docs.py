@@ -4,7 +4,7 @@ import os
 import subprocess
 
 if len(sys.argv) != 3:
-    print("Usage python generate_docs.py <path/to/rust/project> <path/to/sphinx>")
+    print("Usage: python generate_docs.py <path/to/rust/project> <path/to/sphinx>")
     sys.exit(1)
 
 # Adjust PROJECT_ROOT as needed. This example assumes the project root is two levels up.
@@ -38,7 +38,7 @@ def extract_source(span):
 def generate_rst(items):
     # Group public items (with documentation) by source file (span.filename)
     groups = {}
-    for key, item in items.items():
+    for _, item in items.items():
         if item.get("visibility") != "public" or item.get("docs") is None:
             continue
 
