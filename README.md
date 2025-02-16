@@ -1,5 +1,5 @@
-# Intel-based TEE Benchmark
-This tool collects metrics to compare application performance when executed in an Intel-based TEE (SGX) using Gramine versus running on bare metal.
+# Enclave-Benchmark
+This tool collects metrics to compare application performance when executed in an Intel-based TEE (SGX) using [Gramine](https://gramine.readthedocs.io/en/stable/) versus running on bare metal.
 
 Full documentation is available [here](https://alarmfox.github.io/enclave-benchmark/).
 
