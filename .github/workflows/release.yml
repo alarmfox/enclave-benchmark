@@ -19,6 +19,7 @@ jobs:
       - name: Set up LaTeX
         uses: xu-cheng/latex-action@v2
         with:
+          working_directory: docs/report-ita/
           root_file: docs/report-ita/main.tex
 
       - name: Build LaTeX document
