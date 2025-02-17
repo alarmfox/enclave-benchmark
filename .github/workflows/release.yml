@@ -27,9 +27,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ github.ref_name }}
         run: |
-          cp docs/report-ita/build/main.pdf [ITA]-Report.pdf
+          cp docs/report-ita/build/main.pdf \[ITA\]-Report.pdf
           gh release create "$tag" \
               --repo="$GITHUB_REPOSITORY" \
-              --title="${tag#v}" \
+              --title="${tag}" \
               --generate-notes \
-              [ITA]-Report.pdf
+              \[ITA\]-Report.pdf
