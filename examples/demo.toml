@@ -1,0 +1,22 @@
+[globals]
+sample_size = 5
+enclave_size = ["128M", "256M", "512M"]
+output_directory = "demo-result"
+num_threads = [1, 2, 4]
+extra_perf_events = ["cpu-clock"]
+debug = false
+deep_trace = true
+
+# cpu bound benchmark
+[[tasks]]
+executable = "examples/nbody/launch_nbody.sh"
+args = ["-r", "10", "-n", "10000000", "-p", "examples/nbody/nbodySim"]
+
+# i/o bound benchmark
+[[tasks]]
+pre_run_executable = "examples/bonnie++/pre_run.sh"
+pre_run_args = ["-d", "{{ output_directory }}/test", "-u", "giuseppe"]
+
+executable = "/usr/bin/bonnie++"
+args = ["-d", "{{ output_directory }}/test", "-q", "-c", "{{ num_threads }}", "-u", "giuseppe"]
+storage_type = ["encrypted", "untrusted"]
