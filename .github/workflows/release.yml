@@ -32,4 +32,4 @@ jobs:
               --repo="$GITHUB_REPOSITORY" \
               --title="${tag#v}" \
               --generate-notes \
-              docs/report-ita/build/[ITA]-Report.pdf
+              [ITA]-Report.pdf
