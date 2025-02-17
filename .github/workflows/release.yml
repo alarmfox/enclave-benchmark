@@ -20,18 +20,14 @@ jobs:
         uses: xu-cheng/latex-action@v2
         with:
           working_directory: docs/report-ita/
-          root_file: docs/report-ita/main.tex
-
-      - name: Build LaTeX document
-        run: |
-          latexmk -pdf -output-directory=docs/report-ita/build -cd docs/report-ita/main.tex
-          cp docs/report-ita/build/main.pdf docs/report-ita/build/[ITA]-Report.pdf
+          root_file: main.tex
 
       - name: Create release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ github.ref_name }}
         run: |
+          cp docs/report-ita/build/main.pdf [ITA]-Report.pdf
           gh release create "$tag" \
               --repo="$GITHUB_REPOSITORY" \
               --title="${tag#v}" \
