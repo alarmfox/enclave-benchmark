@@ -38,7 +38,7 @@ apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
 sudo -u $USER_NAME rm intel-sgx-deb.key
 
 # get gramine
-sudo -u $USER_NAME curl -o /tmp/v1.8.tar.gz -L https://github.com/gramineproject/gramine/archive/refs/tags/v1.8.tar.gz
+sudo -u $USER_NAME curl -o /tmp/v1.8.tar.gz -fsSL https://github.com/gramineproject/gramine/archive/refs/tags/v1.8.tar.gz
 sudo -u $USER_NAME tar -xvf /tmp/v1.8.tar.gz -C /tmp
 cd /tmp/gramine-1.8/
 
