@@ -23,8 +23,8 @@ jobs:
 
       - name: Build LaTeX document
         run: |
-          latexmk -pdf -output-directory=docs/report-ita docs/report-ita/main.tex
-          cp docs/report-ita/main.pdf docs/report-ita/[ITA]-Report.pdf
+          latexmk -pdf -output-directory=docs/report-ita/build -cd docs/report-ita/main.tex
+          cp docs/report-ita/build/main.pdf docs/report-ita/build/[ITA]-Report.pdf
 
       - name: Create release
         env:
@@ -35,4 +35,4 @@ jobs:
               --repo="$GITHUB_REPOSITORY" \
               --title="${tag#v}" \
               --generate-notes \
-              docs/report-ita/[ITA]-Report.pdf
+              docs/report-ita/build/[ITA]-Report.pdf
