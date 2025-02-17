@@ -3,11 +3,18 @@ This tool collects metrics to compare application performance when executed in a
 
 Full documentation is available [here](https://alarmfox.github.io/enclave-benchmark/).
 
-## Quick Start [Ubuntu 22.04 or 24.04]
+## Quick Start (Ubuntu 22.04 or 24.04)
 
 If you are using Ubuntu 22.04 or 24.04, you can set up the host by running the script in `dev/setup_host.sh` (run the script from the root directory of the project).
 
-First, clone the repository:
+First, get the source code. If you don't want to contribute use the [latest release](https://github.com/alarmfox/enclave-benchmark/archive/refs/tags/v0.1.0.tar.gz) and extraxct it somewhere with:
+
+```sh
+tar xvf </path/to/tar>
+cd enclave-benchmark-v0.1.0
+```
+
+Otherwise, clone the repository:
 
 ```sh
 git clone https://github.com/alarmfox/enclave-benchmark.git
