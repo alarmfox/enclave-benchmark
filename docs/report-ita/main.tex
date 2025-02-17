@@ -160,7 +160,7 @@ In questo capitolo si analizzano i principali strumenti messi a disposizione da 
 
 \subsection{Performance counters}
 
-I performance counters sono strumenti hardware che consentono di monitorare eventi interni alla CPU, come il numero di cicli, cache misses e altri eventi critici per l'analisi delle prestazioni. Linux fornisce l'interfaccia \texttt{perf}, utilizzabile sia come utility da linea di comando sia in maniera programmatica tramite la system call \texttt{perf\_event\_open}.
+I performance counters sono strumenti hardware che consentono di monitorare eventi interni alla CPU, come il numero di cicli, cache misses e altri eventi critici per l'analisi delle prestazioni. Linux fornisce l'interfaccia \texttt{perf}\cite{perf-docs}, utilizzabile sia come utility da linea di comando sia in maniera programmatica tramite la system call \texttt{perf\_event\_open}.
 
 La system call \texttt{perf\_event\_open} apre un descrittore di file che rappresenta un contatore di performance. La struttura \texttt{perf\_event\_attr} viene utilizzata per specificare il tipo di evento da monitorare (ad es. cicli CPU, eventi hardware, ecc.), le modalità di raccolta e altre opzioni, come l'esclusione delle attività in kernel o in ambienti virtualizzati.
 
@@ -223,7 +223,7 @@ int main(void) {
 In questo esempio, la struttura \texttt{perf\_event\_attr} viene configurata per contare i cicli CPU (\texttt{PERF\_COUNT\_HW\_CPU\_CYCLES}) escludendo il codice kernel e le operazioni in ambienti virtualizzati. Dopo aver aperto il contatore tramite \texttt{perf\_event\_open}, il contatore viene resettato, abilitato, e successivamente disabilitato per leggere il valore accumulato, che viene stampato a video.
 
 \subsection{Misurazione dell'energia}
-La tecnologia \emph{Running Average Power Limit (RAPL)} consente di monitorare il consumo energetico del sistema suddividendolo in in domini di potenza, quali \textit{package}, \textit{core}, \textit{uncore} e \textit{DRAM},  sfruttando contatori hardware che vengono incrementati in base alla corrente e alla tensione misurate. Questi contatori forniscono una stima dell'energia consumata, espressa in microjoule, e sono esposti dal kernel Linux tramite il filesystem \texttt{sysfs}.
+La tecnologia \emph{Running Average Power Limit (RAPL)}\cite{rapl-docs} consente di monitorare il consumo energetico del sistema suddividendolo in in domini di potenza, quali \textit{package}, \textit{core}, \textit{uncore} e \textit{DRAM},  sfruttando contatori hardware che vengono incrementati in base alla corrente e alla tensione misurate. Questi contatori forniscono una stima dell'energia consumata, espressa in microjoule, e sono esposti dal kernel Linux tramite il filesystem \texttt{sysfs}.
 
 \paragraph{Interfaccia Sysfs}
 
@@ -295,12 +295,12 @@ Ad esempio, assumendo di avere un disco rotazionale con 7200rpm, il consumo ener
 I dischi SSD (e nvme) non risentono della differenza di operazioni sequenziali e randomiche.
 
 \subsection{Tracing a livello kernel: eBPF}
-\emph{extended Berkeley Packet Filter (eBPF)} è una tecnologia utilizzata per eseguire programmi all'interno del kernel senza scrivere un modulo. Il vantaggio di questa scelta risiede nel fatto che l'ambiente in cui eseguono questi programmi è isolato e, pertanto, un \textit{crash} del programma non impatta il fallimento del kernel.
+\emph{extended Berkeley Packet Filter (eBPF)}\cite{ebpf-docs} è una tecnologia utilizzata per eseguire programmi all'interno del kernel senza scrivere moduli kernel. Il vantaggio di questa scelta risiede nel fatto che l'ambiente in cui eseguono questi programmi è isolato e, pertanto, un \textit{crash} del programma non impatta il fallimento del kernel.
 
 Un programma eBPF è composto da diverse sezioni, tra cui le sezioni `.maps`, che definiscono le strutture dati utilizzate per memorizzare le informazioni raccolte durante l'esecuzione. Queste mappe sono essenziali per trasferire i dati dal kernel allo spazio utente. Un aspetto distintivo dei programmi eBPF è che non hanno un punto di ingresso `main` come i programmi tradizionali. Invece, vengono attaccati (attraverso la primitiva \textbf{\textit{attach}}) a specifici eventi o punti di hook nel kernel, come l'entrata o l'uscita da una system call.
 
 \subsubsection{Architettura eBPF}
-eBPF è una macchina virtuale (simile alla JVM) instanziata all'interno del kernelper l'esecuzione di programmi. La macchina è di tipo RISC e ha $11$ registri a $64-bit$, uno stack limitato a $512$ byte. Questa macchina effettua dei salti alle istruzioni da eseguire utilizzando una coda dei programmi.
+eBPF è una macchina virtuale (simile alla JVM) instanziata all'interno del kernel per l'esecuzione di funzioni in \textit{kernel-space}. La macchina è di tipo RISC e ha $11$ registri a $64-bit$, uno stack limitato a $512$ byte. Questa macchina effettua dei salti alle istruzioni da eseguire utilizzando una coda dei programmi.
 
 Questa macchina è dotata di un JIT (Just in time compiler) che consente di compilare in codice macchina il codice oggetto passato in ingresso, generate con un compilatore \textit{LLVM-compliant}. Come mostrato in \cref{fig:ebpf_arch}, prima di essere caricato in memoria, il programma passa per un \textit{verifier}. Questo applica delle regole per capire se:
 \begin{itemize}
@@ -358,29 +358,17 @@ int trace_enter_read(struct trace_event_raw_sys_enter *ctx) {
 char LICENSE[] SEC("license") = "GPL";
 \end{lstlisting}
 
-Questo programma può essere compilato con:
+Questo programma può essere compilato in $2$ fasi. Il primo comando genera una rappresentazione intermedia del programma ($IR$), mentre il secondo lo converte in codice oggetto.
 \begin{verbatim}
-clang -O2 -target bpf -g -c <file> -o <output-file>
+clang -S -g -target bpf -Wall -Werror -O2 -o prog.ll -emit-llvm -c prog.bpf.c 
+llc -march=bpf -filetype=obj -O2 -o prog.o prog.ll
 \end{verbatim}
 
-Utilizzando \textit{bpftool}, è possibile osservare il seguente disassemblato:
+Il codice oggetto può essere caricato nel kernel attraverso \textit{bpftool} da cui si può ottenere un disassmblato dopo la fase di compilazione e verifica.
+
 \begin{verbatim}
-0: R1=ctx() R10=fp0
-; __u64 ts = bpf_ktime_get_ns(); @ test.bpf.c:15
-0: (85) call bpf_ktime_get_ns#5       ; R0_w=scalar()
-1: (bf) r7 = r0                       ; R0_w=scalar(id=1) R7_w=scalar(id=1)
-2: (b7) r6 = 0                        ; R6_w=0
-; bpf_ringbuf_reserve(&events, sizeof(struct event), 0); @ test.bpf.c:17
-3: (18) r1 = 0xffff9ab6d0e11700       ; R1_w=map_ptr(map=events,ks=0,vs=0)
-5: (b7) r2 = 16                       ; R2_w=16
-6: (b7) r3 = 0                        ; R3_w=0
-7: (85) call bpf_ringbuf_reserve#131          ; R0=ringbuf_mem_or_null(id=3,ref_obj_id=3,sz=16) refs=3
-; if (!rb_event) { @ test.bpf.c:19
-8: (55) if r0 != 0x0 goto pc+6        ; R0=0
-; bpf_printk("bpf_ringbuf_reserve failed\n"); @ test.bpf.c:20
-9: (18) r1 = 0xffff9ab684678108       ; R1_w=map_value(map=test.rodata,ks=4,vs=28)
-11: (b7) r2 = 28                      ; R2_w=28
-12: (85) call bpf_trace_printk#6
+sudo bpftool prog load prog.o /sys/fs/bpf/prog
+sudo bpftool prog dump jited name dump_bpf_prog
 \end{verbatim}
 
 Il programma di seguito carica quello ebpf e stampa tutti gli eventi ricevuti dal ringbuffer.
@@ -391,72 +379,90 @@ Il programma di seguito carica quello ebpf e stampa tutti gli eventi ricevuti da
 #include <signal.h>
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
-#include "ebpf_prog.skel.h" // Autogenerato con bpftool o libbpf
 
 static volatile int stop;
 
 struct event {
-    __u32 ev_type;
-    __u64 timestamp;
+  __u32 ev_type;
+  __u64 timestamp;
 };
 
-// Gestione del segnale per terminare il programma in modo pulito
-void handle_signal(int signo) {
-    stop = 1;
-}
+void handle_signal(int signo) { stop = 1; }
 
-// Callback per processare i dati dalla ring buffer
-void handle_event(void *ctx, void *data, size_t data_sz) {
-    struct event *e = (struct event *)data;
-    printf("Evento ricevuto: tipo=%u, timestamp=%llu ns\n", e->ev_type, e->timestamp);
+int handle_event(void *ctx, void *data, unsigned long ata_sz) {
+  struct event *e = (struct event *)data;
+  printf("Evento ricevuto: tipo=%u, timestamp=%llu ns\n", e->ev_type,
+         e->timestamp);
+  return 0;
 }
 
 int main() {
-    struct ring_buffer *rb = NULL;
-    struct ebpf_prog *skel;
-    int err;
+  struct ring_buffer *rb = NULL;
+  struct bpf_link *link = NULL;
+  struct bpf_program *prog;
+  struct bpf_object *obj;
+  int err;
 
-    // Carica e attacca il programma eBPF
-    skel = ebpf_prog__open_and_load();
-    if (!skel) {
-        fprintf(stderr, "Errore nel caricamento del programma eBPF\n");
-        return 1;
+  obj = bpf_object__open_file("prog.o", NULL);
+  if (!obj) {
+    fprintf(stderr, "Errore nel caricamento del programma eBPF\n");
+    return 1;
+  }
+
+  err = bpf_object__load(obj);
+  if (err) {
+    fprintf(stderr, "Errore nel caricamento dell'oggetto BPF: %d\n", err);
+    goto cleanup;
+  }
+
+  prog = bpf_object__find_program_by_name(obj, "trace_enter_read");
+  if (!prog) {
+    fprintf(stderr, "Errore nel trovare il programma BPF\n");
+    goto cleanup;
+  }
+
+  link = bpf_program__attach_tracepoint(prog, "syscalls", "sys_enter_read");
+  if (!link) {
+    fprintf(stderr, "Errore nell'aggancio del programma eBPF\n");
+    goto cleanup;
+  }
+
+  signal(SIGINT, handle_signal);
+  signal(SIGTERM, handle_signal);
+
+  rb =
+      ring_buffer__new(bpf_map__fd(bpf_object__find_map_by_name(obj, "events")),
+                       handle_event, NULL, NULL);
+  if (!rb) {
+    fprintf(stderr, "Errore nell'apertura della ring buffer\n");
+    goto cleanup;
+  }
+
+  printf("In ascolto degli eventi... (Ctrl+C per terminare)\n");
+
+  while (!stop) {
+    err = ring_buffer__poll(rb, 100); // Poll con timeout di 100ms
+    if (err < 0) {
+      fprintf(stderr, "Errore nella ring buffer poll: %d\n", err);
+      break;
     }
+  }
 
-    err = ebpf_prog__attach(skel);
-    if (err) {
-        fprintf(stderr, "Errore nell'aggancio del programma eBPF: %d\n", err);
-        goto cleanup;
-    }
-
-    signal(SIGINT, handle_signal);
-    signal(SIGTERM, handle_signal);
-
-    // Apri la ring buffer per ricevere eventi
-    rb = ring_buffer__new(bpf_map__fd(skel->maps.events), handle_event, NULL, NULL);
-    if (!rb) {
-        fprintf(stderr, "Errore nell'apertura della ring buffer\n");
-        goto cleanup;
-    }
-
-    printf("In ascolto degli eventi... (Ctrl+C per terminare)\n");
-
-    while (!stop) {
-        err = ring_buffer__poll(rb, 100); // Poll con timeout di 100ms
-        if (err < 0) {
-            fprintf(stderr, "Errore nella ring buffer poll: %d\n", err);
-            break;
-        }
-    }
-
-    printf("\nTerminazione...\n");
+  printf("\nTerminazione...\n");
 
 cleanup:
-    ring_buffer__free(rb);
-    ebpf_prog__destroy(skel);
-    return 0;
+  ring_buffer__free(rb);
+  bpf_link__destroy(link);
+  bpf_object__close(obj);
+  return 0;
 }
 \end{lstlisting}
+
+Il \textit{main} può essere compilato linkando la libreria bpf (che deve essere installata):
+
+\begin{verbatim}
+gcc -o user-space -lbpf main.c
+\end{verbatim}
 
 \clearpage
 \section{Implementazione}
@@ -561,7 +567,7 @@ docker run -it -w /app -v $(pwd):/app --privileged --device /dev/sgx_enclave\
 L'applicazione è attualmente installabile \textbf{solo} compilando il codice sorgente, in quanto dipende fortemente dal sistema operativo host. Per compilare l'applicazione:
 
 \begin{enumerate}
-  \item \textbf{Clonare il repository:}
+  \item \textbf{Clonare la repository:}
   \begin{verbatim}
 git clone https://github.com/alarmfox/enclave-benchmark.git
   \end{verbatim}
@@ -676,7 +682,7 @@ L'applicazione deve essere eseguita con privilegi di \textbf{root}. Un esempio d
 
 Le opzioni della CLI includono:
 \begin{itemize}
-  \item \texttt{-v}: attiva l'output di debug.
+  \item \texttt{-v}: abilita log del programma. Per ogni \texttt{v}, saranno sempre più dettagliati. Con \texttt{-vv}, si avrà l'output di debug, con \texttt{-vvv} quello di tracing;
   \item \texttt{-c, --config <CONFIG>}: specifica il percorso del file di configurazione.
   \item \texttt{--force}: rimuove eventuali directory di output preesistenti.
   \item \texttt{-h, --help}: mostra il messaggio di aiuto.
@@ -684,6 +690,55 @@ Le opzioni della CLI includono:
 \end{itemize}
 
 In sintesi, grazie a questo sistema di configurazione dinamica, l'applicazione è in grado di eseguire automaticamente una molteplicità di esperimenti variando i parametri specificati nel file \texttt{TOML}. Questo approccio flessibile semplifica la gestione e l'analisi delle prestazioni delle applicazioni, permettendo di ottenere dati dettagliati in modo sistematico.
+
+\subsection{Risultati}
+Per ogni esperimento, l'applicazione crea la seguente struttura:
+
+\begin{forest}
+for tree={
+    font=\ttfamily,
+    grow'=0,
+    child anchor=west,
+    parent anchor=south,
+    anchor=west,
+    calign=first,
+    edge path={
+      \noexpand\path [draw, \forestoption{edge}]
+      (!u.south west) +(7.5pt,0) |- node[fill,inner sep=1.25pt] {} (.child anchor)\forestoption{edge label};
+    },
+    before typesetting nodes={
+      if n=1
+        {insert before={[,phantom]}}
+        {}
+    },
+    fit=band,
+    before computing xy={l=15pt},
+  }
+  [prog-threads-<enclave-size>/
+    [<prog>-<threads>-<enclave-size>-<storage>
+      [1]
+      [2]
+      [..]
+      [sample\_size]
+    ]
+    [<prog>.manifest.sgx]
+    [<prog>.sig]
+    [encrypted]
+    [untrusted]
+  ]
+\end{forest}
+
+La directory radice, detta \texttt{experiment\_directory}, contiene:
+\begin{itemize}
+    \item \textbf{prog.manifest.sgx}: il manifest costruito che contiene gli hash di tutti i file trusted, i mount point, ecc.;
+    \item \textbf{prog.sig}: contiene la firma dell'enclave;
+    \item \textbf{encrypted}: directory montata come criptata per l'applicazione Gramine. Ogni file sarà protetto da una chiave hardcoded;
+    \item \textbf{untrusted}: directory montata all'enclave come \texttt{sgx.allowed\_files}.
+\end{itemize}
+
+Le directory \texttt{encrypted} e \texttt{untrusted} saranno utilizzate dall'utente attraverso la variabile \texttt{\{\{ output\_directory \}\}} nel file di input.
+
+Ogni iterazione specificata in \texttt{globals.sample\_size} avrà una directory dedicata (denominata con l'indice dell'iterazione) all'interno di \texttt{<prog>-<threads>-<enclave-size>-<storage>}.
 
 \clearpage
 \pagestyle{plain}
