@@ -102,7 +102,7 @@ sgx.allowed_files = [
 ]
 "#;
 
-pub const ENERGY_CSV_HEADER: &str = "timestamp (us),energy (microjoule)";
+pub const ENERGY_CSV_HEADER: &str = "timestamp (ns),energy (microjoule)";
 pub const IO_CSV_HEADER: &str = "dimension,unit,value,description";
 pub const TRACE_CSV_HEADER: &str = "timestamp (ns),event";
 

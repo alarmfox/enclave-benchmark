@@ -89,6 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   for task in config.tasks {
     profiler.profile(task)?;
   }
+
   Ok(())
 }
 
