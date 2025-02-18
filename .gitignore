@@ -8,3 +8,4 @@
 src/bpf/vmlinux.h
 docs/web/source/code_docs.rst
 /**/nbodySim
+/**/__pycache__

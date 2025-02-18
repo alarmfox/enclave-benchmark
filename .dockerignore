@@ -1,3 +1,4 @@
 /target
 docs/
 /**/.venv
+/**/__pycache__
