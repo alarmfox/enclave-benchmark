@@ -274,7 +274,7 @@ Each task can specify a `storage_type` array (see the `writer` task in the examp
 ## Analyzing results
 ### Preprocessing for Data Aggregation
 
-To aggregate sample data with mean and standard deviation, a preprocessing step is required. This is accomplished using the script `dev/pre-process.py`. The script processes the raw data collected during benchmarking and computes the necessary statistical measures for analysis.
+To aggregate sample data with mean and standard deviation, a preprocessing step is required. This is accomplished using the script `dev/aggregate.py`. The script processes the raw data collected during benchmarking and computes the necessary statistical measures for analysis.
 
 #### Setting Up the Environment
 
@@ -288,7 +288,7 @@ pip install -r requirements.txt
 
 #### Running the Preprocessing Script
 
-The `dev/pre-process.py` script requires two arguments to function correctly:
+The `dev/aggregate.py` script requires two arguments to function correctly:
 
 1. **Path to the TOML File**: This is the configuration file used during the benchmarking process. It contains the parameters and tasks that were executed.
 
@@ -297,12 +297,12 @@ The `dev/pre-process.py` script requires two arguments to function correctly:
 To run the script, use the following command:
 
 ```sh
-python dev/pre-process.py <path/to/toml> <path/to/output_directory>
+python dev/aggregate.py <path/to/toml> <path/to/output_directory>
 ```
 
 For example, running the following commands produces:
 ```sh
-python dev/pre-process.py examples/demo.toml /tmp/demo-processed
+python dev/aggregate.py examples/demo.toml /tmp/demo-processed
 tree /tmp/demo-processed/
 
 /tmp/demo-processed/

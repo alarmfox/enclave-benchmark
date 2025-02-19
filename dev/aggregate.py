@@ -14,7 +14,7 @@ if len(sys.argv) != 3:
 
 SKIP_SGX = os.environ.get("EB_SKIP_SGX", False)
 
-W = 10
+W = 10 # microseconds
 
 input_file, output_directory = sys.argv[1], sys.argv[2]
 print("Reading from", input_file)
@@ -122,6 +122,17 @@ def process_energy_samples(files: List[str]) -> pd.DataFrame:
 
     return avg_binned
 
+def process_io(files: List[str]) -> pd.DataFrame:
+
+    df = pd.concat([pd.read_csv(f, names=["dimension", "unit", "value", "description"]) for f in files])
+    print(df)
+    df_new = df.groupby("dimension").agg(
+        value_mean=("value", "mean"),
+        value_unit=("unit", "first"),
+    ).reset_index()
+
+    return df_new
+
 def get_energy_files(samples_directory: str) -> List[str]:
     """
     Scans a directory for energy sample files and returns a list of matching filenames.
@@ -160,12 +171,15 @@ for (task, storages) in tasks:
                                   f"{task}-{thread}-untrusted")
         
         result_directory = os.path.join(output_directory, f"{task}-{thread}-untrusted")
+        os.makedirs(result_directory, exist_ok=True)
 
         perf_files = [os.path.join(experiment_dir, f"{i}/perf.csv") for i in range(1, n+1)]
-
         df = process_perf_samples(perf_files)
-        os.makedirs(result_directory, exist_ok=True)
-        df.to_csv(os.path.join(result_directory, f"perf.csv"), index=False)
+        df.to_csv(os.path.join(result_directory, "perf.csv"), index=False)
+
+        io_files = [os.path.join(experiment_dir, f"{i}/io.csv") for i in range(1, n+1)]
+        df = process_io(io_files)
+        df.to_csv(os.path.join(result_directory, "io.csv"), index=False)
 
         for file in energy_files:
             files = [os.path.join(experiment_dir, f"{i}/{file}") for i in range(1, n+1)]
@@ -188,12 +202,15 @@ for (task, storages) in tasks:
                                       f"{task}-{thread}-{storage}")
             
             result_directory = os.path.join(output_directory, f"sgx-{task}-{thread}-{storage}")
+            os.makedirs(result_directory, exist_ok=True)
 
             perf_files = [os.path.join(experiment_dir, f"{i}/perf.csv") for i in range(1, n+1)]
-
             df = process_perf_samples(perf_files)
-            os.makedirs(result_directory, exist_ok=True)
             df.to_csv(os.path.join(result_directory, f"perf.csv"), index=False)
+
+            io_files = [os.path.join(experiment_dir, f"{i}/io.csv") for i in range(1, n+1)]
+            df = process_io(io_files)
+            df.to_csv(os.path.join(result_directory, "io.csv"), index=False)
 
             for file in energy_files:
                 files = [os.path.join(experiment_dir, f"{i}/{file}") for i in range(1, n+1)]
