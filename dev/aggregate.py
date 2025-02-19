@@ -123,8 +123,24 @@ def process_energy_samples(files: List[str]) -> pd.DataFrame:
     return avg_binned
 
 def process_io(files: List[str]) -> pd.DataFrame:
+    """
+    Processes I/O sample files to calculate the average value for each dimension and description.
 
-    
+    This function reads multiple CSV files containing I/O data, concatenates them into a single DataFrame,
+    and then groups the data by the 'dimension' and 'description' columns. It calculates the mean of the 
+    'value' column and retains the first occurrence of the 'unit' for each group.
+
+    Parameters:
+    files (List[str]): A list of file paths to the CSV files containing I/O data. Each file is expected to
+                       have columns: "dimension", "description", "value", and "unit".
+
+    Returns:
+    pd.DataFrame: A DataFrame containing the aggregated I/O data with the following columns:
+                  - 'dimension': The dimension name.
+                  - 'description': The description of the dimension.
+                  - 'value_mean': The mean of the 'value' for each dimension and description.
+                  - 'value_unit': The unit of the value, taken from the first occurrence in each group.
+    """
     df = pd.concat([pd.read_csv(f) for f in files])
     df_new = df.groupby(["dimension", "description"]).agg(
         value_mean=("value", "mean"),
