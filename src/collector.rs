@@ -650,10 +650,10 @@ mod utils {
         writeln!(file, "{}", row)?;
       }
     }
-    writeln!(file, "sys_read,#,{},,", metrics.sys_read_count)?;
-    writeln!(file, "sys_read,ns,{},,", metrics.sys_read_avg)?;
-    writeln!(file, "sys_write,#,{},,", metrics.sys_write_count)?;
-    writeln!(file, "sys_write,ns,{},,", metrics.sys_write_avg)?;
+    writeln!(file, "sys_read,#,{},", metrics.sys_read_count)?;
+    writeln!(file, "sys_read,ns,{},", metrics.sys_read_avg)?;
+    writeln!(file, "sys_write,#,{},", metrics.sys_write_count)?;
+    writeln!(file, "sys_write,ns,{},", metrics.sys_write_avg)?;
 
     // Now use the DiskStats to_csv_rows method.
     for stats in &metrics.disk_stats {

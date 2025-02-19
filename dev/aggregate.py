@@ -124,9 +124,9 @@ def process_energy_samples(files: List[str]) -> pd.DataFrame:
 
 def process_io(files: List[str]) -> pd.DataFrame:
 
-    df = pd.concat([pd.read_csv(f, names=["dimension", "unit", "value", "description"]) for f in files])
-    print(df)
-    df_new = df.groupby("dimension").agg(
+    
+    df = pd.concat([pd.read_csv(f) for f in files])
+    df_new = df.groupby(["dimension", "description"]).agg(
         value_mean=("value", "mean"),
         value_unit=("unit", "first"),
     ).reset_index()
@@ -163,6 +163,7 @@ print("Discovered following energy sample files", energy_files)
 
 # non gramine sgx
 for (task, storages) in tasks:
+    print("Processing", task)
     for thread in num_threads:
         experiment_dir = os.path.join(input_directory, 
                                   task, 
@@ -193,6 +194,7 @@ if SKIP_SGX:
 
 # gramine sgx
 for (task, storages) in tasks:
+    print("Processing", task)
     for thread in num_threads:
         for storage in storages:
             experiment_dir = os.path.join(input_directory, 
