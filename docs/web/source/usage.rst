@@ -9,9 +9,7 @@ Example files are stored in the `examples` directory. Below `examples/full.toml`
 
   [globals]
   sample_size = 3
-  enclave_size = ["64M", "128M"]
   output_directory = "/tmp/test"
-  num_threads = [1, 2]
   extra_perf_events = ["cpu-clock"]
   energy_sample_interval = "250ms"
   debug = true
@@ -19,10 +17,13 @@ Example files are stored in the `examples` directory. Below `examples/full.toml`
   [[tasks]]
   executable = "/bin/dd"
   args = ["if=/dev/zero", "of=/dev/null", "count=10000"]
+  enclave_size = ["64M", "128M"]
 
   [[tasks]]
   pre_run_executable = "/usr/bin/echo"
   pre_run_args = ["Starting make"]
+  enclave_size = ["64M", "128M"]
+  num_threads = [1, 2]
 
   executable = "/usr/bin/make"
   args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "app", "output={{ output_directory }}"]
@@ -34,6 +35,8 @@ Example files are stored in the `examples` directory. Below `examples/full.toml`
   executable = "examples/simple-writer/writer"
   args = ["{{ output_directory }}"]
   storage_type = ["encrypted", "tmpfs", "untrusted"]
+  enclave_size = ["64M", "128M"]
+  num_threads = [1, 2]
 
 
 The application needs to be run always with **root** privileges.
@@ -66,15 +69,8 @@ The `[globals]` section defines settings that apply to all benchmark runs.
 - **sample_size** (integer)  
   Specifies the number of times each experiment is repeated.
 
-- **enclave_size** (list of strings)  
-  Defines the possible enclave memory sizes. Each experiment will be run with every listed size.  
-  Example: `["64M", "128M"]` runs experiments with enclaves of `64MB` and `128MB`.
-
 - **output_directory** (string)  
   The directory where benchmark results and outputs are stored. This variable can be referenced in task configurations using `{{ output_directory }}`.
-
-- **num_threads** (list of integers)  
-  Specifies the number of threads to be used in each experiment. The application expands `{{ num_threads }}` for every experiment.
 
 - **extra_perf_events** (list of strings)  
   Specifies additional performance monitoring events to be collected.  
@@ -102,6 +98,14 @@ Each `[[tasks]]` section defines a specific executable or command to run in the 
 - **args** (list of strings)  
   Command-line arguments passed to the executable.  
   Example: `["if=/dev/zero", "of=/dev/null", "count=10000"]` runs `dd` with these arguments.
+
+- **enclave_size** (list of strings)  
+  Defines the possible enclave memory sizes. Each experiment will be run with every listed size.  
+  Example: `["64M", "128M"]` runs experiments with enclaves of `64MB` and `128MB`.
+
+- **num_threads** (list of integers)  
+  Specifies the number of threads to be used in each experiment. The application expands `{{ num_threads }}` for every experiment.
+  Default: `1`.
 
 Optional Task Fields
 ^^^^^^^^^^^^^^^^^^^^
@@ -137,5 +141,3 @@ Some fields contain **placeholders** that are expanded dynamically for each expe
 
 - `{{ num_threads }}`  
   Expands to each value in `num_threads` during benchmarking.
-
-This mechanism ensures that experiments are executed with different configurations while maintaining a clean and structured input file.

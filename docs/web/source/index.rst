@@ -21,5 +21,7 @@ running on bare metal.
    inner-working
    installation
    usage
+   analysis
 
    code_docs 
+

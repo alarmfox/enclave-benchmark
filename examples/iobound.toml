@@ -1,8 +1,6 @@
 [globals]
 sample_size = 1
-enclave_size = ["256M"]
 output_directory = "test"
-num_threads = [1]
 extra_perf_events = ["cpu-clock"]
 debug = false
 deep_trace = false
@@ -11,3 +9,4 @@ deep_trace = false
 executable = "/bin/dd"
 args = ["if=/dev/zero", "of={{ output_directory }}/a.zero", "count=100000"]
 storage_type = ["encrypted", "tmpfs", "untrusted"]
+enclave_size = ["256M"]

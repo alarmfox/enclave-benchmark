@@ -1,8 +1,6 @@
 [globals]
 sample_size = 3
-enclave_size = ["64M", "128M"]
 output_directory = "/tmp/test"
-num_threads = [1, 2]
 extra_perf_events = ["cpu-clock"]
 energy_sample_interval = "250ms"
 debug = true
@@ -11,6 +9,8 @@ debug = true
 executable = "/bin/dd"
 args = ["if=/dev/zero", "of=/dev/null", "count=10000"]
 
+enclave_size = ["64M", "128M"]
+num_threads = [1, 2]
 [[tasks]]
 pre_run_executable = "/usr/bin/echo"
 pre_run_args = ["Starting make"]
@@ -21,8 +21,12 @@ args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "app", "output
 post_run_executable = "/usr/bin/make"
 post_run_args = ["-C", "examples/basic-c-app", "clean", "output={{ output_directory }}"]
 
+enclave_size = ["64M", "128M"]
+num_threads = [1, 2]
 [[tasks]]
 executable = "examples/simple-writer/writer"
 args = ["{{ output_directory }}"]
 storage_type = ["encrypted", "tmpfs", "untrusted"]
 
+enclave_size = ["64M", "128M"]
+num_threads = [1, 2]

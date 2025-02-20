@@ -1,8 +1,6 @@
 [globals]
 sample_size = 5
-enclave_size = ["128M", "256M", "512M"]
 output_directory = "demo-result"
-num_threads = [1, 2, 4]
 extra_perf_events = ["cpu-clock"]
 debug = false
 deep_trace = true
@@ -20,6 +18,7 @@ pre_run_args = ["-d", "{{ output_directory }}/test", "-u", "giuseppe"]
 executable = "/usr/bin/bonnie++"
 args = ["-d", "{{ output_directory }}/test", "-q", "-c", "{{ num_threads }}", "-u", "giuseppe"]
 storage_type = ["encrypted", "untrusted"]
+num_threads = [1, 2, 4]
 
 post_run_executable = "rm"
 post_run_args = ["-r", "{{ output_directory }}/test/*"]

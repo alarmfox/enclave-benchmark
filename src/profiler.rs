@@ -45,8 +45,6 @@ use crate::{
 pub struct Profiler {
   private_key_path: PathBuf,
   output_directory: PathBuf,
-  num_threads: Vec<usize>,
-  enclave_size: Vec<String>,
   collector: Arc<DefaultCollector>,
   debug: bool,
 }
@@ -61,8 +59,6 @@ struct GramineMetadata {
 
 impl Profiler {
   pub fn new(
-    num_threads: Vec<usize>,
-    enclave_size: Vec<String>,
     output_directory: PathBuf,
     debug: bool,
     collector: DefaultCollector,
@@ -81,8 +77,6 @@ impl Profiler {
     Ok(Profiler {
       private_key_path,
       output_directory,
-      num_threads,
-      enclave_size,
       debug,
       collector: Arc::new(collector),
     })
@@ -323,8 +317,14 @@ impl Profiler {
       Ok(())
     };
 
-    for num_threads in &self.num_threads {
-      for enclave_size in &self.enclave_size {
+    let num_threads = if let Some(threads) = task.num_threads {
+      threads
+    } else {
+      vec![1]
+    };
+
+    for num_threads in &num_threads {
+      for enclave_size in &task.enclave_size {
         let gramine_metadata = self.build_and_sign_enclave(
           &task.executable,
           &task_path.join(format!(
@@ -362,8 +362,6 @@ mod test {
     let collector = collector::DefaultCollector::new(1, false, Duration::from_millis(100), None);
     let output_directory = TempDir::new().unwrap();
     let profiler = Profiler::new(
-      vec![1],
-      vec!["64M".to_string()],
       output_directory.path().join("profiler").to_path_buf(),
       false,
       collector,
@@ -405,15 +403,15 @@ mod test {
       r#"
             [globals]
             sample_size = 3
-            enclave_size = ["64M", "128M"]
-            num_threads = [1]
             output_directory = "/test"
             [[tasks]]
             executable = "/bin/ls"
+            enclave_size = ["64M", "128M"]
             [[tasks]]
             executable = "/bin/ls"
             args = ["-l", "-a"]
             storage_type = ["invalid_storage_type", "tmpfs"]
+            enclave_size = ["64M", "128M"]
             "#,
     )
     .unwrap();
@@ -484,16 +482,16 @@ mod test {
       r#"
             [globals]
             sample_size = 3
-            enclave_size = ["64M", "128M"]
-            num_threads = [1]
             output_directory = "/test"
             [[tasks]]
             executable = "/bin/ls"
             storage_type = []
+            enclave_size = ["64M", "128M"]
             [[tasks]]
             executable = "/bin/ls"
             args = ["-l", "-a"]
             storage_type = ["tmpfs"] 
+            enclave_size = ["64M", "128M"]
             "#,
     )
     .unwrap();

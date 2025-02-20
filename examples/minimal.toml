@@ -1,11 +1,10 @@
 [globals]
 sample_size = 1
-enclave_size = ["64M"]
 output_directory = "/tmp/test"
-num_threads = [2]
 extra_perf_events = ["cpu-clock"]
 
 [[tasks]]
 executable = "/usr/bin/sleep"
 args = ["4"]
-
+enclave_size = ["64M"]
+num_threads = [2]

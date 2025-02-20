@@ -8,8 +8,6 @@ use serde::Deserialize;
 /// # Fields
 ///
 /// - **sample_size** - Specifies the number of times each experiment is repeated.
-/// - **num_threads** - A vector specifying the number of threads to be used in each experiment.
-/// - **enclave_size** - A vector of strings representing the possible enclave memory sizes. Each experiment will be run with every listed size.
 /// - **output_directory** - The directory where benchmark results and outputs are stored. This variable can be referenced in task configurations using {{ output_directory }}.
 /// - **extra_perf_events** - An optional vector of strings for additional performance monitoring events to be collected.
 /// - **debug** - A boolean flag for enabling debug logging for more detailed output. Defaults to false.
@@ -18,8 +16,6 @@ use serde::Deserialize;
 #[derive(Deserialize, Debug)]
 pub struct GlobalParams {
   pub sample_size: u32,
-  pub num_threads: Vec<usize>,
-  pub enclave_size: Vec<String>,
   pub output_directory: PathBuf,
   pub extra_perf_events: Option<Vec<String>>,
 
@@ -42,6 +38,8 @@ pub struct GlobalParams {
 ///
 /// * **executable** - The path to the executable file for the task.
 /// * **args** - A vector of arguments to be passed to the executable. Defaults to an empty vector.
+/// - **num_threads** - A vector specifying the number of threads to be used in each experiment.
+/// - **enclave_size** - A vector of strings representing the possible enclave memory sizes. Each experiment will be run with every listed size.
 /// * **custom_manifest_path** - An optional path to a custom manifest file.
 /// * **storage_type** - A vector of storage types, deserialized using **deserialize_storage_type**. Defaults to **[StorageType::Untrusted]**.
 /// * **pre_run_executable** - An optional path to an executable to run before the main task.
@@ -54,6 +52,9 @@ pub struct Task {
 
   #[serde(default)]
   pub args: Vec<String>,
+
+  pub num_threads: Option<Vec<usize>>,
+  pub enclave_size: Vec<String>,
 
   pub custom_manifest_path: Option<PathBuf>,
   #[serde(

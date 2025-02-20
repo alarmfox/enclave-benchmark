@@ -190,9 +190,7 @@ Example files are stored in the `examples` directory. Below is `examples/full.to
 ```toml
 [globals]
 sample_size = 3
-epc_size = ["64M", "128M"]
 output_directory = "/tmp/test"
-num_threads = [2, 4]
 extra_perf_events = ["cpu-clock"]
 energy_sample_interval = "100ms"
 debug = true
@@ -204,6 +202,8 @@ pre_run_args = ["Before task"]
 
 executable = "/bin/dd"
 args = ["if=/dev/zero", "of=/dev/null", "count=10000"]
+epc_size = ["64M", "128M"]
+num_threads = [2, 4]
 
 post_run_executable = "/usr/bin/echo"
 post_run_args = ["After task"]
@@ -211,10 +211,14 @@ post_run_args = ["After task"]
 [[tasks]]
 executable = "/usr/bin/make"
 args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "clean", "app"]
+epc_size = ["64M", "128M"]
+num_threads = [2, 4]
 
 [[tasks]]
 executable = "./examples/simple-writer/writer"
 args = ["{{ output_directory }}"]
+epc_size = ["64M", "128M"]
+num_threads = [2, 4]
 storage_type = ["encrypted", "tmpfs", "untrusted"]
 ```
 

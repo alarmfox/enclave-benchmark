@@ -66,7 +66,7 @@ libos.entrypoint = "{{ executable }}"
 loader.log_level = "{{ debug }}"
 
 loader.env.OMP_NUM_THREADS = "{{ num_threads }}"
-loader.env.LD_LIBRARY_PATH = "/lib"
+loader.env.LD_LIBRARY_PATH = "/lib:{{ arch_libdir }}:/usr/lib"
 loader.insecure__use_cmdline_argv = true
 
 fs.mounts = [
@@ -77,6 +77,7 @@ fs.mounts = [
   { type = "tmpfs", path = "{{ tmpfs_path }}" },
   { type = "encrypted", path = "/encrypted/", uri = "file:{{ encrypted_path }}/", key_name = "default" },
   { path = "/untrusted/", uri = "file:{{ untrusted_path }}/" },
+  { path = "/etc/passwd", uri = "file:/etc/passwd" }
 ]
 
 fs.insecure__keys.default = "ffeeddccbbaa99887766554433221100"
@@ -95,6 +96,7 @@ sgx.trusted_files = [
   "file:{{ executable_path }}/",
   "file:{{ arch_libdir }}/",
   "file:/usr/{{ arch_libdir }}/",
+  "file:/etc/passwd"
 ]
 
 sgx.allowed_files = [
