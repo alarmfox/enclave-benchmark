@@ -13,13 +13,10 @@ enclave_size = ["1G"]
 
 # i/o bound benchmark
 [[tasks]]
-pre_run_executable = "examples/bonnie++/pre_run.sh"
-pre_run_args = ["-d", "{{ output_directory }}/data", "-u", "giuseppe"]
-
 executable = "/usr/bin/bonnie++"
-args = ["-d", "{{ output_directory }}/data", "-q", "-u", "giuseppe", "-r", "{{ ram_size }}"]
+args = ["-d", "{{ output_directory }}", "-q", "-u", "giuseppe", "-r", "{{ ram_size }}"]
 storage_type = ["encrypted", "untrusted"]
 enclave_size = ["512M"]
 
 post_run_executable = "rm"
-post_run_args = ["-rf", "{{ output_directory }}/data/Bonnie.*"]
+post_run_args = ["-rf", "{{ output_directory }}/Bonnie.*"]

@@ -45,6 +45,7 @@ pub struct DefaultCollector {
   rapl_paths: Vec<(String, PathBuf)>,
   energy_sample_interval: Duration,
   partitions: Vec<Partition>,
+  stop: Arc<AtomicBool>,
 }
 
 struct TraceResult {
@@ -78,6 +79,7 @@ impl DefaultCollector {
   ) -> Self {
     Self {
       sample_size,
+      stop: Arc::new(AtomicBool::new(false)),
       partitions: Partition::load(),
       deep_trace,
       energy_sample_interval,
@@ -122,7 +124,7 @@ impl DefaultCollector {
     args: &[String],
     experiment_directory: &Path,
     deep_trace: bool,
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  ) -> Result<(), std::io::Error> {
     let is_sgx = program.as_os_str() == "gramine-sgx";
 
     // skip sgx to speed development on non sgx machine
@@ -164,6 +166,9 @@ impl DefaultCollector {
   ) -> Result<(), Box<dyn std::error::Error>> {
     let me = self.clone();
     for n in 1..me.clone().sample_size + 1 {
+      if self.stop.clone().load(Ordering::Relaxed) {
+        break;
+      }
       let experiment_directory = output_directory.join(PathBuf::from(n.to_string()));
       create_dir_all(&experiment_directory)?;
 
@@ -182,7 +187,7 @@ impl DefaultCollector {
       }
     }
 
-    if self.deep_trace {
+    if self.deep_trace && !self.stop.clone().load(Ordering::Relaxed) {
       let span = tracing::span!(tracing::Level::TRACE, "deep_trace");
       let _enter = span.enter();
       trace!("entering deep trace");
@@ -198,7 +203,6 @@ impl DefaultCollector {
 
   #[tracing::instrument(level = "trace", skip(self, child))]
   fn collect_metrics(self: Arc<Self>, child: Child, is_sgx: bool, deep_trace: bool) -> Metrics {
-    let stop = Arc::new(AtomicBool::new(false));
     let pid = child.id();
 
     let perf_handle = {
@@ -208,20 +212,17 @@ impl DefaultCollector {
 
     let energy_handle = {
       let me = self.clone();
-      let energy_stop = stop.clone();
-      thread::spawn(move || me.monitor_energy_consumption(&energy_stop))
+      thread::spawn(move || me.monitor_energy_consumption())
     };
 
     let tracing_handle = {
       let me = self.clone();
-      let tracing_stop = stop.clone();
-      thread::spawn(move || me.trace_program(pid, is_sgx, deep_trace, tracing_stop))
+      thread::spawn(move || me.trace_program(pid, is_sgx, deep_trace))
     };
 
     let wait_child_handle = {
       let me = self.clone();
-      let stop = stop.clone();
-      thread::spawn(move || me.wait_for_child(child, stop))
+      thread::spawn(move || me.wait_for_child(child))
     };
 
     let trace_result = tracing_handle.join().unwrap();
@@ -288,12 +289,9 @@ impl DefaultCollector {
     perf_output
   }
 
-  fn monitor_energy_consumption(
-    &self,
-    stop: &std::sync::atomic::AtomicBool,
-  ) -> HashMap<String, Vec<EnergySample>> {
+  fn monitor_energy_consumption(&self) -> HashMap<String, Vec<EnergySample>> {
     let mut measures: HashMap<String, Vec<EnergySample>> = HashMap::new();
-    while !stop.load(Ordering::Relaxed) {
+    while !self.stop.clone().load(Ordering::Relaxed) {
       let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
@@ -317,13 +315,7 @@ impl DefaultCollector {
     measures
   }
   #[allow(clippy::type_complexity)]
-  fn trace_program(
-    &self,
-    pid: u32,
-    is_sgx: bool,
-    deep_trace: bool,
-    tracing_stop: Arc<AtomicBool>,
-  ) -> TraceResult {
+  fn trace_program(&self, pid: u32, is_sgx: bool, deep_trace: bool) -> TraceResult {
     let skel_builder = TracerSkelBuilder::default();
     let mut open_object = MaybeUninit::uninit();
     let open_skel = skel_builder
@@ -358,7 +350,7 @@ impl DefaultCollector {
     };
 
     // wait for target program to end
-    while !tracing_stop.load(Ordering::Relaxed) {
+    while !self.stop.clone().load(Ordering::Relaxed) {
       if let Some((ref mut rb, _)) = maybe_ring_buffer {
         rb.poll(Duration::from_millis(250))
           .expect("cannot poll from ring buffer");
@@ -435,9 +427,25 @@ impl DefaultCollector {
     }
   }
 
-  fn wait_for_child(&self, child: Child, stop: Arc<AtomicBool>) -> (Vec<u8>, Vec<u8>) {
+  fn wait_for_child(self: Arc<Self>, child: Child) -> (Vec<u8>, Vec<u8>) {
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
+    let child = Arc::new(Mutex::new(child));
+    let sig_wait = {
+      let me = self.clone();
+      let child = child.clone();
+      thread::spawn(move || {
+        // busy wait
+        while !me.stop.clone().load(Ordering::Relaxed) {
+          thread::sleep(Duration::from_secs(1));
+        }
+        let mut child = child.lock().unwrap();
+        child
+          .kill()
+          .unwrap_or_else(|e| error!("failed to kill child process: {e}"));
+      })
+    };
+    let child: Child = Arc::try_unwrap(child).unwrap().into_inner().unwrap();
     match child.wait_with_output() {
       Ok(output) => {
         if !output.status.success() {
@@ -454,8 +462,13 @@ impl DefaultCollector {
       }
       Err(e) => error!("target program exited with error {e}"),
     }
-    stop.store(true, Ordering::Relaxed);
+    self.stop();
+    sig_wait.join().unwrap();
     (stdout, stderr)
+  }
+
+  pub fn stop(self: Arc<Self>) {
+    self.clone().stop.store(true, Ordering::Relaxed);
   }
 }
 

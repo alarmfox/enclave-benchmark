@@ -8,10 +8,14 @@ use std::{
   fs::{remove_dir_all, File},
   io::Read,
   path::PathBuf,
+  sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+  },
 };
 
 use clap::{arg, command, Parser};
-use tracing::{debug, warn, Level};
+use tracing::{info, warn, Level};
 
 mod collector;
 mod common;
@@ -62,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _ => Level::TRACE,
   };
   if env::var_os("EB_SKIP_SGX").is_some_and(|v| v == "1") {
-    debug!("EB_SKIP_SGX is set; skipping SGX execution");
+    warn!("EB_SKIP_SGX is set; skipping SGX execution");
   }
   let mut config = String::new();
   tracing_subscriber::fmt().with_max_level(log_level).init();
@@ -77,18 +81,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
   }
 
+  let collector = Arc::new(DefaultCollector::new(
+    config.globals.sample_size,
+    config.globals.deep_trace,
+    config.globals.energy_sample_interval,
+    config.globals.extra_perf_events,
+  ));
+
   let profiler = Profiler::new(
     config.globals.output_directory,
     config.globals.debug,
-    DefaultCollector::new(
-      config.globals.sample_size,
-      config.globals.deep_trace,
-      config.globals.energy_sample_interval,
-      config.globals.extra_perf_events,
-    ),
+    collector.clone(),
   )?;
 
+  let collector = collector.clone();
+  let stop = Arc::new(AtomicBool::new(false));
+  {
+    let stop = stop.clone();
+    let collector = collector.clone();
+    ctrlc::set_handler(move || {
+      info!("Received stop signal. Closing existing threads... ");
+      collector.clone().stop();
+      stop.store(true, Ordering::Relaxed);
+    })
+    .expect("Cannot set SIGTERM handler");
+  }
+
   for task in config.tasks {
+    if stop.clone().load(Ordering::Relaxed) {
+      break;
+    }
     profiler.profile(task)?;
   }
 

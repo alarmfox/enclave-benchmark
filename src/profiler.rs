@@ -61,7 +61,7 @@ impl Profiler {
   pub fn new(
     output_directory: PathBuf,
     debug: bool,
-    collector: DefaultCollector,
+    collector: Arc<DefaultCollector>,
   ) -> Result<Self, std::io::Error> {
     create_dir(&output_directory)?;
 
@@ -78,7 +78,7 @@ impl Profiler {
       private_key_path,
       output_directory,
       debug,
-      collector: Arc::new(collector),
+      collector,
     })
   }
 
@@ -380,7 +380,7 @@ mod test {
     let profiler = Profiler::new(
       output_directory.path().join("profiler").to_path_buf(),
       false,
-      collector,
+      Arc::new(collector),
     )
     .unwrap();
 
