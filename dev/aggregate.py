@@ -15,8 +15,6 @@ if len(sys.argv) != 3:
 
 SKIP_SGX = os.environ.get("EB_SKIP_SGX", False)
 
-W = 10 # microseconds
-
 input_file, output_directory = sys.argv[1], sys.argv[2]
 print("Reading from", input_file)
 with open(input_file, 'r') as f:
@@ -27,11 +25,9 @@ os.makedirs(output_directory, exist_ok=True)
 print("Created output directory", output_directory)
 
 n = config["globals"]["sample_size"]
-num_threads = config["globals"]["num_threads"]
-enclave_size = config["globals"]["enclave_size"]
 input_directory = config["globals"]["output_directory"]
 deep_trace = config["globals"]["deep_trace"]
-tasks = [(os.path.basename(t["executable"]), t.get("storage_type", ["untrusted"]) ) for t in config["tasks"]]
+tasks = config["tasks"]
 
 # Calculate the avg and std-dev for perf perf samples
 def process_perf_samples(files: List[str]) -> pd.DataFrame:
@@ -79,7 +75,7 @@ def process_perf_samples(files: List[str]) -> pd.DataFrame:
 
     return df_new
 
-def process_energy_samples(files: list, W: int = 100_000):  # W in microseconds (default: 10ms)
+def process_energy_samples(files: list, W: int = 10_000):  # W in microseconds (default: 10ms)
     """
     Processes energy sample files to calculate the average energy consumption over a common time grid.
 
@@ -97,7 +93,7 @@ def process_energy_samples(files: list, W: int = 100_000):  # W in microseconds 
 
     for filename in files:
         df = pd.read_csv(filename)
-        df['relative_time'] = df['timestamp (us)'] - df['timestamp (us)'].iloc[0]
+        df['relative_time'] = df['timestamp (ns)'] - df['timestamp (ns)'].iloc[0]
 
         if common_time_grid is None:
             max_time = df['relative_time'].max()
@@ -160,11 +156,6 @@ def get_energy_files(samples_directory: str) -> List[str]:
             files.append(fname)
     return files
 
-first_prog = tasks[0][0]
-first_exp = f"{first_prog}/no-gramine-sgx/{first_prog}-{num_threads[0]}/{first_prog}-{num_threads[0]}-untrusted/1"
-energy_files = get_energy_files(os.path.join(input_directory, first_exp))
-
-print("Discovered following energy sample files", energy_files)
 
 # Function to process experiments
 def process_experiment(task: str, thread: int, storage: Union[str, None] = None, sgx: bool = False)-> None:
@@ -214,11 +205,19 @@ def process_experiment(task: str, thread: int, storage: Union[str, None] = None,
         deep_trace_directory = os.path.join(experiment_dir, "deep-trace")
         shutil.copytree(deep_trace_directory, os.path.join(result_directory, "deep-trace"))
 
+first_prog = os.path.basename(tasks[0]["executable"])
+num_threads = tasks[0].get("num_threads", [1])
+
+first_exp = f"{first_prog}/no-gramine-sgx/{first_prog}-{num_threads[0]}/{first_prog}-{num_threads[0]}-untrusted/1"
+energy_files = get_energy_files(os.path.join(input_directory, first_exp))
+
+print("Discovered following energy sample files", energy_files)
 # Process non-gramine SGX tasks
-for task, storages in tasks:
+for task in tasks:
+    prog = os.path.basename(task["executable"])
     print("Processing", task, end="... ")
-    for thread in num_threads:
-        process_experiment(task, thread)
+    for thread in task.get("num_threads", [1]):
+        process_experiment(prog, thread)
     print("done")
 
 if SKIP_SGX:
@@ -226,9 +225,10 @@ if SKIP_SGX:
     sys.exit(0)
 
 # Process gramine SGX tasks
-for task, storages in tasks:
+for task in tasks:
+    prog = os.path.basename(task["executable"])
     print("Processing", task, end="... ")
-    for thread in num_threads:
-        for storage in storages:
-            process_experiment(task, thread, storage, sgx=True)
+    for thread in task,get("num_threads", [1]):
+        for storage in task.get("storage_type", ["untrusted"]):
+            process_experiment(prog, thread, storage, sgx=True)
     print("done")
