@@ -141,3 +141,7 @@ Some fields contain **placeholders** that are expanded dynamically for each expe
 
 - `{{ num_threads }}`  
   Expands to each value in `num_threads` during benchmarking.
+
+- `{{ ram_size }}`  
+  Expands to each value in `enclave_size` during benchmarking. For non Gramine application, 
+  default will in `src/constants.rs`

@@ -1,3 +1,6 @@
+/// Default RAM to be used for non gramine applications
+pub const DEFAULT_RAM_SIZE: usize = 4096;
+
 /// The Gramine manifest configuration for an enclave application.
 ///
 /// This manifest defines various settings and parameters for running an application

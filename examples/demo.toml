@@ -1,5 +1,5 @@
 [globals]
-sample_size = 5
+sample_size = 1
 output_directory = "demo-result"
 extra_perf_events = ["cpu-clock"]
 debug = false
@@ -7,15 +7,20 @@ deep_trace = true
 
 # cpu bound benchmark
 [[tasks]]
+# this should be the full path 
 executable = "examples/nbody/nbodySim"
 args = ["10000000"]
+enclave_size = ["1G"]
 
 # i/o bound benchmark
 [[tasks]]
+pre_run_executable = "examples/bonnie++/pre_run.sh"
+pre_run_args = ["-d", "{{ output_directory }}/data", "-u", "giuseppe"]
+
 executable = "/usr/bin/bonnie++"
-args = ["-d", "{{ output_directory }}", "-q", "-u", "giuseppe"]
+args = ["-d", "{{ output_directory }}/data", "-q", "-u", "giuseppe", "-r", "{{ ram_size }}"]
 storage_type = ["encrypted", "untrusted"]
-num_threads = [1, 2, 4]
+enclave_size = ["512M"]
 
 post_run_executable = "rm"
-post_run_args = ["-r", "{{ output_directory }}/*"]
+post_run_args = ["-rf", "{{ output_directory }}/data/Bonnie.*"]

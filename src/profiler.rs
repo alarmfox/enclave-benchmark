@@ -19,7 +19,7 @@ use rsa::{
 use crate::{
   collector::DefaultCollector,
   common::{StorageType, Task},
-  constants::MANIFEST,
+  constants::{DEFAULT_RAM_SIZE, MANIFEST},
 };
 
 /// A `Profiler` is responsible for managing the benchmarking of tasks within an SGX enclave environment.
@@ -201,11 +201,13 @@ impl Profiler {
   }
 
   #[allow(clippy::type_complexity)]
+  #[allow(clippy::too_many_arguments)]
   fn build_and_expand_args(
     args: Vec<String>,
     pre_args: Vec<String>,
     post_args: Vec<String>,
     num_threads: usize,
+    enclave_size: usize,
     storage_type: &StorageType,
     fallback_storage_path: &Path,
     gramine_metadata: Option<GramineMetadata>,
@@ -226,8 +228,9 @@ impl Profiler {
       ("num_threads", num_threads.to_string()),
       (
         "output_directory",
-        output_directory.to_str().unwrap().to_string(),
+        output_directory.to_string_lossy().into_owned(),
       ),
+      ("ram_size", enclave_size.to_string()),
     ]);
     let handlebars = Handlebars::new();
 
@@ -265,14 +268,23 @@ impl Profiler {
                         num_threads: &usize,
                         sgx_metadata: Option<(&str, GramineMetadata)>|
      -> Result<(), Box<dyn std::error::Error>> {
-      let experiment_path = match sgx_metadata {
-        Some((size, _)) => task_path.join(format!(
-          "gramine-sgx/{}-{}-{}",
-          program_name, num_threads, size
-        )),
-        None => task_path.join(format!("no-gramine-sgx/{}-{}", program_name, num_threads)),
+      let (enclave_size, experiment_path) = match sgx_metadata {
+        Some((size, _)) => (
+          size[..size.len() - 1]
+            .parse::<usize>()
+            .expect("bad size value"),
+          task_path.join(format!(
+            "gramine-sgx/{}-{}-{}",
+            program_name, num_threads, size
+          )),
+        ),
+        None => (
+          DEFAULT_RAM_SIZE,
+          task_path.join(format!("no-gramine-sgx/{}-{}", program_name, num_threads)),
+        ),
       };
       create_dir_all(&experiment_path)?;
+
       // create plaintext storage path
       let fallback_storage_path = experiment_path.join("storage");
 
@@ -289,6 +301,7 @@ impl Profiler {
           task.pre_run_args.clone(),
           task.post_run_args.clone(),
           *num_threads,
+          enclave_size,
           storage_type,
           &fallback_storage_path,
           sgx_metadata.clone().map(|x| x.1),
@@ -297,7 +310,7 @@ impl Profiler {
         let pre_task = task.pre_run_executable.clone().map(|e| (e, pre_args));
         let post_task = task.post_run_executable.clone().map(|e| (e, post_args));
 
-        let (program, args, result_path) = match sgx_metadata {
+        let (program, args, result_path) = match sgx_metadata.clone() {
           Some((size, _)) => (
             PathBuf::from("gramine-sgx"),
             args,
@@ -389,6 +402,7 @@ mod test {
       "examples/simple.toml",
       "examples/iobound.toml",
       "examples/minimal.toml",
+      "examples/demo.toml",
     ];
     for file in examples {
       let n = File::open(PathBuf::from(file))
@@ -432,6 +446,7 @@ mod test {
       vec![],
       vec![],
       1,
+      1024,
       &StorageType::Untrusted,
       &output_directory,
       None,
@@ -457,6 +472,7 @@ mod test {
       vec![],
       vec![],
       1,
+      1024,
       &StorageType::Encrypted,
       &output_directory,
       Some(gramine_metadata.clone()),

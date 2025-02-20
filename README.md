@@ -267,6 +267,8 @@ Each task can specify a `storage_type` array (see the `writer` task in the examp
 * tmpfs: an in-memory filesystem similar to tmpfs, which is encrypted according to Gramine;
 * untrusted: simple storage with no integrity check and no encryption;
 
+Tasks may also access to `{{ ram_size }}` variable populated with `src/constants.rs:DEFAULT_RAM_SIZE` for non Gramine applications and with a value from `task.enclave_size`.
+
 ## Analyzing results
 ### Preprocessing for Data Aggregation
 

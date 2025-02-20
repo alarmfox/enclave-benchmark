@@ -1,0 +1,641 @@
+<div class="titlepage">
+
+<span>'''''Tracing e profiling di applicazioni SGX in Linux'''''</span><br />
+<span>'''''High Performance and Quantum Computing'''''</span><br />
+<span>Anno Accademico 2024/2025</span>
+
+'''Giuseppe Capasso matr. M63001498'''
+
+
+</div>
+<span id="introduzione"></span>
+= Introduzione =
+
+L’implementazione di Trusted Execution Environment (TEE) in hardware contrasta alcuni ''threat model'' a discapito delle performance delle applicazioni. Lo scopo di questo progetto è quello di creare un sistema che consenta di raccogliere metriche di applicazioni sia quando vengono eseguite in TEE che non per effettuarne delle comparazioni in futuro. La difficoltà principale nella raccolta metriche in questo tipo di scenari è l’uniformità. Infatti, in TEE hardware, il sistema operativo è visto come non fidato e quindi viene utilizzato in meno possibile dalle applicazioni che potrebbero disabilitare per motivi di sicurezza la raccolta metriche. L’implementazione proposta si basa su Intel-SGX e utilizza Gramine. Gramine è uno strumento proposto da Intel per effettuare il porting di applicazioni già esistenti in TEE evitando di modificare il codice sorgente.
+
+<span id="sec:requirements"></span>
+= Requisiti =
+
+Il sistema che si vuole costruire deve essere in grado di orchestrare l’esecuzione di benchmark di più programmi, eseguendo ogni programma sia con Gramine che senza, variando diverse metriche. I requisiti dell’applicazione sono riassunti nella seguente tabella:
+
+{| class="wikitable"
+|+ Requisiti dell’applicazione per il benchmarking in TEE e non-TEE
+|-
+! style="text-align: left;"| '''Requisito'''
+! style="text-align: left;"| '''Descrizione'''
+|-
+| style="text-align: left;"| R1
+| style="text-align: left;"| L’applicazione deve essere in grado di eseguire programmi in un ambiente Trusted Execution Environment (TEE) utilizzando Gramine.
+|-
+| style="text-align: left;"| R2
+| style="text-align: left;"| L’applicazione deve eseguire gli stessi programmi anche al di fuori del TEE per consentire il confronto delle prestazioni.
+|-
+| style="text-align: left;"| R3
+| style="text-align: left;"| Deve essere possibile variare le metriche di esecuzione, come il numero di thread, la quantità di memoria allocata, e altre risorse di sistema.
+|-
+| style="text-align: left;"| R4
+| style="text-align: left;"| L’applicazione deve raccogliere metriche di performance durante l’esecuzione dei programmi, sia in TEE che non.
+|-
+| style="text-align: left;"| R5
+| style="text-align: left;"| Deve essere garantita l’uniformità nella raccolta delle metriche, indipendentemente dall’ambiente di esecuzione.
+|-
+| style="text-align: left;"| R6
+| style="text-align: left;"| L’applicazione deve fornire un’interfaccia per configurare e avviare i benchmark in modo automatizzato.
+|-
+| style="text-align: left;"| R7
+| style="text-align: left;"| I risultati dei benchmark devono essere salvati in un formato che consenta un’analisi successiva.
+|-
+| style="text-align: left;"| R8
+| style="text-align: left;"| L’applicazione deve essere in grado di gestire errori e anomalie durante l’esecuzione dei benchmark, fornendo log dettagliati.
+|-
+| style="text-align: left;"| R9
+| style="text-align: left;"| Deve essere possibile eseguire benchmark su diverse piattaforme hardware supportate da Intel-SGX.
+|}
+
+Il benchmark si divide in due tipi principali: Macro benchmark e Micro benchmark. In questa sezione ci concentreremo sui parametri del Macro benchmark, che riguardano l’esecuzione in enclave. I parametri considerati sono i seguenti:
+
+{| class="wikitable"
+|+ Parametri del Macro benchmark
+|-
+! style="text-align: left;"| '''Parametro'''
+! style="text-align: left;"| '''Descrizione'''
+! style="text-align: left;"| '''Note'''
+|-
+| style="text-align: left;"| Enclave
+| style="text-align: left;"| Indica se l’esecuzione avviene all’interno di un enclave (Sì/No).
+| style="text-align: left;"|
+|-
+| style="text-align: left;"| Memoria Enclave
+| style="text-align: left;"| La quantità di memoria dedicata all’enclave, con valori come &quot;256M&quot;.
+| style="text-align: left;"| A seconda della versione di SGX considerata questo comporterà l’allocazione statica (SGX1) o dinamica (SGX2) della memoria. La memoria EPC ha una grandezza standard che viene configurata dal BIOS e può essere di 64M o 128M
+|-
+| style="text-align: left;"| Numero di thread
+| style="text-align: left;"| Il numero di thread utilizzati dal programma durante l’esecuzione.
+| style="text-align: left;"| A seconda della versione di SGX il numero di thread può crescere staticamente o dinamicamente. Per SGX1, un’enclave ha bisogno di almeno ''4'' thread per eseguire (gestore Gramine, servizi di attestazione remota etc.); mentre SGX2 può creare dinamicamente i thread quando c’è bisogno
+|-
+| style="text-align: left;"| Tipo di storage
+| style="text-align: left;"| Specifica se lo storage è non fidato (untrusted) o cifrato (encrypted).
+| style="text-align: left;"|
+|}
+
+Questi parametri sono fondamentali per valutare le prestazioni delle applicazioni quando vengono eseguite in un ambiente Trusted Execution Environment (TEE) utilizzando Gramine. La configurazione di questi parametri consente di analizzare l’impatto delle diverse risorse e configurazioni sull’efficienza e la sicurezza delle applicazioni.
+
+I parametri del micro benchmark sono fondamentali per analizzare il comportamento dettagliato delle applicazioni. I parametri considerati sono i seguenti:
+
+{| class="wikitable"
+|+ Parametri del Micro benchmark
+|-
+! style="text-align: left;"| '''Parametro'''
+! style="text-align: left;"| '''Descrizione'''
+! style="text-align: left;"| '''Note'''
+|-
+| style="text-align: left;"| Consumo energetico
+| style="text-align: left;"| Misura l’energia consumata durante l’esecuzione di applicazioni Gramine e non
+| style="text-align: left;"|
+|-
+| style="text-align: left;"| Tracce di esecuzione
+| style="text-align: left;"| Raccoglie le tracce di esecuzione per analizzare il flusso del programma.
+| style="text-align: left;"|
+|-
+| style="text-align: left;"| Pattern di accesso
+| style="text-align: left;"| Analizza i pattern di accesso alla memoria e alle risorse.
+| style="text-align: left;"|
+|}
+
+<span id="strumenti-per-il-profiling-in-linux"></span>
+= Strumenti per il profiling in Linux =
+
+In questo capitolo si analizzano i principali strumenti messi a disposizione da Linux per il monitoraggio e l’analisi delle prestazioni dei sistemi. In particolare, verranno esaminati i meccanismi basati sui performance counters, le tecniche di misurazione dell’energia e il tracing a livello kernel tramite eBPF.
+
+<span id="performance-counters"></span>
+== Performance counters ==
+
+I performance counters sono strumenti hardware che consentono di monitorare eventi interni alla CPU, come il numero di cicli, cache misses e altri eventi critici per l’analisi delle prestazioni. Linux fornisce l’interfaccia <code>perf</code>[[#ref-perf-docs|[1]]], utilizzabile sia come utility da linea di comando sia in maniera programmatica tramite la system call <code>perf_event_open</code>.
+
+La system call <code>perf_event_open</code> apre un descrittore di file che rappresenta un contatore di performance. La struttura <code>perf_event_attr</code> viene utilizzata per specificare il tipo di evento da monitorare (ad es. cicli CPU, eventi hardware, ecc.), le modalità di raccolta e altre opzioni, come l’esclusione delle attività in kernel o in ambienti virtualizzati.
+
+Di seguito è riportato uno snippet di codice in C che illustra un esempio basilare di utilizzo di <code>perf_event_open</code> per monitorare il numero di cicli della CPU:
+
+<pre>#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <linux/perf_event.h>
+#include <sys/ioctl.h>
+#include <sys/syscall.h>
+#include <asm/unistd.h>
+#include <errno.h>
+
+/* Funzione wrapper per la system call perf_event_open */
+static long
+perf_event_open(struct perf_event_attr *hw_event, pid_t pid, int cpu,
+                int group_fd, unsigned long flags) {
+    return syscall(__NR_perf_event_open, hw_event, pid, cpu, group_fd, flags);
+}
+
+int main(void) {
+    struct perf_event_attr pe;
+    long fd;
+    long long count;
+
+    /* Inizializza la struttura a zero e configura l'evento da monitorare */
+    memset(&pe, 0, sizeof(struct perf_event_attr));
+    pe.type = PERF_TYPE_HARDWARE;
+    pe.size = sizeof(struct perf_event_attr);
+    pe.config = PERF_COUNT_HW_CPU_CYCLES;
+    pe.disabled = 1;
+    pe.exclude_kernel = 1;
+    pe.exclude_hv = 1;
+
+    /* Apre il contatore per il processo corrente su tutti i core (-1) */
+    fd = perf_event_open(&pe, 0, -1, -1, 0);
+    if (fd == -1) {
+        perror("perf_event_open");
+        exit(EXIT_FAILURE);
+    }
+
+    ioctl(fd, PERF_EVENT_IOC_RESET, 0);
+    ioctl(fd, PERF_EVENT_IOC_ENABLE, 0);
+
+    /* Inserire qui il lavoro da monitorare */
+    sleep(1);
+
+    ioctl(fd, PERF_EVENT_IOC_DISABLE, 0);
+    read(fd, &count, sizeof(long long));
+    printf("CPU cycles: %lld\n", count);
+
+    close(fd);
+    return 0;
+}</pre>
+In questo esempio, la struttura <code>perf_event_attr</code> viene configurata per contare i cicli CPU (<code>PERF_COUNT_HW_CPU_CYCLES</code>) escludendo il codice kernel e le operazioni in ambienti virtualizzati. Dopo aver aperto il contatore tramite <code>perf_event_open</code>, il contatore viene resettato, abilitato, e successivamente disabilitato per leggere il valore accumulato, che viene stampato a video.
+
+<span id="misurazione-dellenergia"></span>
+== Misurazione dell’energia ==
+
+La tecnologia ''Running Average Power Limit (RAPL)''[[#ref-rapl-docs|[2]]] consente di monitorare il consumo energetico del sistema suddividendolo in in domini di potenza, quali ''package'', ''core'', ''uncore'' e ''DRAM'', sfruttando contatori hardware che vengono incrementati in base alla corrente e alla tensione misurate. Questi contatori forniscono una stima dell’energia consumata, espressa in microjoule, e sono esposti dal kernel Linux tramite il filesystem <code>sysfs</code>.
+
+<span id="interfaccia-sysfs"></span>
+==== Interfaccia Sysfs ====
+
+L’interfaccia RAPL è accessibile in Linux all’interno della directory:
+
+<div class="forest">
+
+for tree=<span> font=, grow’=0, child anchor=west, parent anchor=south, anchor=west, calign=first, edge path=<span> (!u.south west) +(7.5pt,0) |- node[fill,inner sep=1.25pt] (.child anchor); </span>, before typesetting nodes=<span> if n=1 <span>insert before=<span>[,phantom]</span></span> </span>, fit=band, before computing xy=<span>l=15pt</span>, </span> [/sys/devices/virtual/powercap [intel-rapl [enabled] [intel-rapl:i [enabled] [energy_uj] [max_energy_range_uj] [name] [intel-rapl:i:j [enabled] [energy_uj] [max_energy_range_uj] [name] ] ] ] ] ] ] ]
+
+
+</div>
+In questa struttura, l’indice <code>i</code> rappresenta il dominio energetico principale (ad esempio, un package CPU) e l’indice <code>j</code> identifica eventuali sotto-domini (ad esempio, i core interni o la DRAM). Il file <code>energy_uj</code> contiene il valore cumulativo dell’energia consumata in microjoule, mentre <code>max_energy_range_uj</code> specifica il massimo valore raggiungibile prima che il contatore si resetti.
+
+<span id="implementazione-e-limiti-di-rapl"></span>
+==== Implementazione e limiti di RAPL ====
+
+I contatori RAPL sono implementati direttamente in hardware:
+
+* '''Misurazione hardware:''' Il consumo energetico viene stimato in base alla corrente e alla tensione rilevate da sensori integrati, aggiornando continuamente i contatori.
+* '''Modelli interni:''' I valori riportati sono basati su modelli interni del processore, il che può comportare una certa discrepanza rispetto al consumo reale, soprattutto in condizioni di carico variabile.
+* '''Risoluzione e wrap-around:''' La risoluzione tipica in microjoule potrebbe non essere sufficiente per analisi ad altissima frequenza, e, essendo contatori cumulativi, se non letti con sufficiente frequenza, possono raggiungere il loro limite massimo e conseguentemente &quot;wrap-around&quot;, rendendo necessaria una gestione attenta per evitare errori di interpretazione.
+
+<span id="consumo-energetico-di-un-disco"></span>
+=== Consumo energetico di un disco ===
+
+Lo standard RAPL è stato proposto da Intel e implementato anche su alcuni processori AMD. Tuttavia, non esiste uno standard per misurare il consumo energetico di un disco, ma possono essere ottenute delle metriche indirette a partire dal numero di byte scritti, conoscendo la configurazione di base del sistema e le specifiche del disco utilizzate.
+
+Ad esempio, assumendo di avere un disco rotazionale con 7200rpm, il consumo energetico può variare in base al tipo di operazione di scrittura. Supponiamo che il consumo medio per una scrittura sequenziale di 1GB sia di circa 5W, mentre per una scrittura casuale sia di circa 10W, a causa del maggiore movimento delle testine. Se ipotizziamo di scrivere un totale di ''x'' byte, di cui il 70% in modalità sequenziale e il 30% in modalità casuale, il consumo energetico totale può essere stimato come segue:
+
+* Consumo per scrittura sequenziale: ''0.7 \times \frac{x}{1 \text{GB}} \times 5 \text{W}'';
+* Consumo per scrittura casuale: ''0.3 \times \frac{x}{1 \text{GB}} \times 10 \text{W}''
+
+I dischi SSD (e nvme) non risentono della differenza di operazioni sequenziali e randomiche.
+
+<span id="tracing-a-livello-kernel-ebpf"></span>
+== Tracing a livello kernel: eBPF ==
+
+''extended Berkeley Packet Filter (eBPF)''[[#ref-ebpf-docs|[3]]] è una tecnologia utilizzata per eseguire programmi all’interno del kernel senza scrivere moduli kernel. Il vantaggio di questa scelta risiede nel fatto che l’ambiente in cui eseguono questi programmi è isolato e, pertanto, un ''crash'' del programma non impatta il fallimento del kernel.
+
+Un programma eBPF è composto da diverse sezioni, tra cui le sezioni ‘.maps‘, che definiscono le strutture dati utilizzate per memorizzare le informazioni raccolte durante l’esecuzione. Queste mappe sono essenziali per trasferire i dati dal kernel allo spazio utente. Un aspetto distintivo dei programmi eBPF è che non hanno un punto di ingresso ‘main‘ come i programmi tradizionali. Invece, vengono attaccati (attraverso la primitiva '''''attach''''') a specifici eventi o punti di hook nel kernel, come l’entrata o l’uscita da una system call.
+
+<span id="architettura-ebpf"></span>
+=== Architettura eBPF ===
+
+eBPF è una macchina virtuale (simile alla JVM) instanziata all’interno del kernel per l’esecuzione di funzioni in ''kernel-space''. La macchina è di tipo RISC e ha ''11'' registri a ''64-bit'', uno stack limitato a ''512'' byte. Questa macchina effettua dei salti alle istruzioni da eseguire utilizzando una coda dei programmi.
+
+Questa macchina è dotata di un JIT (Just in time compiler) che consente di compilare in codice macchina il codice oggetto passato in ingresso, generate con un compilatore ''LLVM-compliant''. Come mostrato in [[#fig:ebpf_arch|1]], prima di essere caricato in memoria, il programma passa per un ''verifier''. Questo applica delle regole per capire se:
+
+* il programma effettua cicli infiniti;
+* accede ad aree di memoria illecite e/o non inizializzate
+
+<div id="fig:ebpf_arch" class="figure">
+
+<div class="center">
+
+[[File:./ebpf_arch.png]]
+
+</div>
+
+</div>
+<span id="struttura-di-un-programma-ebpf"></span>
+==== Struttura di un programma eBPF ====
+
+Di seguito è riportato un programma eBPF che invia in spazio utente ogni volta che viene chiamata la system call <code>read</code>. Il programma dichiara un ringbuffer a cui si dovrà sottoscrivere il programma user-space per ottenere gli eventi.
+
+<pre>#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+
+#define EVENT_SYS_READ 0
+
+struct event {
+  __u32 ev_type;
+  __u64 timestamp;
+};
+
+struct {
+  __uint(type, BPF_MAP_TYPE_RINGBUF);
+  __uint(max_entries, 1 << 20);
+} events SEC(".maps");
+
+static __always_inline int snd_trace_event(__u32 evt) {
+  __u64 ts = bpf_ktime_get_ns();
+  struct event *rb_event = bpf_ringbuf_reserve(&events, sizeof(struct event), 0);
+
+  if (!rb_event) {
+    bpf_printk("bpf_ringbuf_reserve failed\n");
+    return 1;
+  }
+
+  rb_event->ev_type = evt;
+  rb_event->timestamp = ts;
+
+  bpf_ringbuf_submit(rb_event, 0);
+
+  return 0;
+}
+
+SEC("tracepoint/syscalls/sys_enter_read")
+int trace_enter_read(struct trace_event_raw_sys_enter *ctx) {
+  return snd_trace_event(EVENT_SYS_READ); 
+}
+
+char LICENSE[] SEC("license") = "GPL";</pre>
+Questo programma può essere compilato in ''2'' fasi. Il primo comando genera una rappresentazione intermedia del programma (''IR''), mentre il secondo lo converte in codice oggetto.
+
+<pre>clang -S -g -target bpf -Wall -Werror -O2 -o prog.ll -emit-llvm -c prog.bpf.c 
+llc -march=bpf -filetype=obj -O2 -o prog.o prog.ll</pre>
+Il codice oggetto può essere caricato nel kernel attraverso ''bpftool'' da cui si può ottenere un disassmblato dopo la fase di compilazione e verifica.
+
+<pre>sudo bpftool prog load prog.o /sys/fs/bpf/prog
+sudo bpftool prog dump jited name dump_bpf_prog</pre>
+Il programma di seguito carica quello ebpf e stampa tutti gli eventi ricevuti dal ringbuffer.
+
+<pre>#include <stdio.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <bpf/libbpf.h>
+#include <bpf/bpf.h>
+
+static volatile int stop;
+
+struct event {
+  __u32 ev_type;
+  __u64 timestamp;
+};
+
+void handle_signal(int signo) { stop = 1; }
+
+int handle_event(void *ctx, void *data, unsigned long ata_sz) {
+  struct event *e = (struct event *)data;
+  printf("Evento ricevuto: tipo=%u, timestamp=%llu ns\n", e->ev_type,
+         e->timestamp);
+  return 0;
+}
+
+int main() {
+  struct ring_buffer *rb = NULL;
+  struct bpf_link *link = NULL;
+  struct bpf_program *prog;
+  struct bpf_object *obj;
+  int err;
+
+  obj = bpf_object__open_file("prog.o", NULL);
+  if (!obj) {
+    fprintf(stderr, "Errore nel caricamento del programma eBPF\n");
+    return 1;
+  }
+
+  err = bpf_object__load(obj);
+  if (err) {
+    fprintf(stderr, "Errore nel caricamento dell'oggetto BPF: %d\n", err);
+    goto cleanup;
+  }
+
+  prog = bpf_object__find_program_by_name(obj, "trace_enter_read");
+  if (!prog) {
+    fprintf(stderr, "Errore nel trovare il programma BPF\n");
+    goto cleanup;
+  }
+
+  link = bpf_program__attach_tracepoint(prog, "syscalls", "sys_enter_read");
+  if (!link) {
+    fprintf(stderr, "Errore nell'aggancio del programma eBPF\n");
+    goto cleanup;
+  }
+
+  signal(SIGINT, handle_signal);
+  signal(SIGTERM, handle_signal);
+
+  rb =
+      ring_buffer__new(bpf_map__fd(bpf_object__find_map_by_name(obj, "events")),
+                       handle_event, NULL, NULL);
+  if (!rb) {
+    fprintf(stderr, "Errore nell'apertura della ring buffer\n");
+    goto cleanup;
+  }
+
+  printf("In ascolto degli eventi... (Ctrl+C per terminare)\n");
+
+  while (!stop) {
+    err = ring_buffer__poll(rb, 100); // Poll con timeout di 100ms
+    if (err < 0) {
+      fprintf(stderr, "Errore nella ring buffer poll: %d\n", err);
+      break;
+    }
+  }
+
+  printf("\nTerminazione...\n");
+
+cleanup:
+  ring_buffer__free(rb);
+  bpf_link__destroy(link);
+  bpf_object__close(obj);
+  return 0;
+}</pre>
+Il ''main'' può essere compilato linkando la libreria bpf (che deve essere installata):
+
+<pre>gcc -o user-space -lbpf main.c</pre>
+<span id="implementazione"></span>
+= Implementazione =
+
+Il sistema descritto in [[#sec:requirements|1]] è implementato in un’applicazione CLI in Rust. Il progetto si trova in [[#ref-eb-repo|[4]]], mentre la documentazione è disponibile in [[#ref-eb-docs|[5]]].
+
+<span id="architettura"></span>
+== Architettura ==
+
+L’architettura dell’applicazione è mostrata in [[#fig:eb_cli_arch|[fig:eb_cli_arch]]]. Il sistema utilizza diversi thread, ognuno dei quali si occupa di raccogliere metriche specifiche durante l’esecuzione del programma. In particolare, l’applicazione si avvale di:
+
+* '''eBPF collector''': un modulo che sfrutta eBPF per attaccare dei programmi al kernel, in modo da tracciare eventi a basso livello come le chiamate di sistema (ad esempio, <code>sys_enter_read</code>) e operazioni I/O. Questi dati vengono poi memorizzati in apposite strutture dati (mappe) e salvati in file CSV.
+* '''Energy monitor''': un thread dedicato che, mediante la tecnologia RAPL, esegue il polling dei contatori energetici disponibili nel kernel. Il monitoraggio viene effettuato leggendo i file relativi ai domini di potenza (ad es. <code>intel-rapl:0</code>, <code>intel-rapl:0:0</code>, ecc.) e salvando i dati con timestamp e consumo in microjoule.
+* '''Performance counters''': un processo esterno viene lanciato per sfruttare l’interfaccia ''perf'' del kernel, consentendo la raccolta di contatori hardware e altri eventi di performance. I dati vengono raccolti in un file <code>perf.csv</code>.
+
+<div id="fig:eb_cli_arch.png" class="figure">
+
+<div class="center">
+
+[[File:./eb_cli_arch.png]]
+
+</div>
+
+</div>
+Gli esperimenti sono generati dinamicamente in base alla combinazione di parametri definiti nel file di configurazione, quali il numero di thread (<code>globals.num_threads</code>), la dimensione dell’enclave (<code>globals.enclave_size</code>) e, per le applicazioni basate su Gramine, il tipo di storage (<code>task.storage</code>). Ad ogni esperimento corrisponde una specifica directory contenente, oltre ai dati raccolti, il manifesto e la firma dell’enclave (per Gramine), e le directory per i file cifrati e non cifrati.
+
+<span id="installazione"></span>
+== Installazione ==
+
+Questa sezione illustra in dettaglio come preparare l’host e installare l’applicazione. Poiché Rust è supportato su tutte le principali piattaforme e sistemi operativi, il vincolo principale riguarda Gramine. Infatti, essendo Gramine costruito da sorgente (necessario per il profiling delle applicazioni) e supportato su ogni sistema compatibile con la piattaforma SGX, è fondamentale che il driver SGX sia incluso nel kernel. A partire dalla versione 5.11 del kernel Linux (con la configurazione <code>CONFIG_X86_SGX=y</code>), il supporto è abilitato di default.
+
+<span id="host-setup"></span>
+=== Host Setup ===
+
+Per preparare l’host esistono tre possibili approcci:
+
+<ul>
+<li><p>'''Utilizzo di uno script:''' Per Ubuntu 22.04 e 24.04 è disponibile uno script rapido (<code>dev/setup_host.sh</code>) che configura automaticamente l’ambiente. Per eseguirlo, lanciare:</p>
+<pre>sudo ./dev/setup_host.sh</pre></li>
+<li><p>'''Installazione su bare metal:''' Se si preferisce installare manualmente le dipendenze su Ubuntu 24.04, seguire i passaggi descritti di seguito.</p></li>
+<li><p>'''Creazione di un’immagine Docker:''' È possibile creare un container Docker che includa l’ambiente di build, utile soprattutto se non si utilizza Ubuntu 24.04.</p></li></ul>
+
+<span id="bare-metal"></span>
+==== Bare Metal ====
+
+Per una configurazione manuale su Ubuntu 24.04, procedere come segue:
+
+<ol>
+<li><p>'''Abilitare SGX in BIOS:''' Assicurarsi che la tecnologia Intel SGX sia abilitata nelle impostazioni del BIOS.</p></li>
+<li><p>'''Installare le dipendenze di build:''' Queste dipendenze sono necessarie per compilare sia Gramine da sorgente che l’applicazione di benchmark. Eseguire:</p>
+<pre>sudo apt-get install -y build-essential clang clang llvm-dev python3-dev \
+libbpf-dev git autoconf bison gawk meson nasm pkg-config python3 python3-click \
+python3-jinja2 python3-pyelftools python3-tomli python3-tomli-w python3-voluptuous \
+wget cmake libprotobuf-c-dev protobuf-c-compiler protobuf-compiler python3-cryptography \
+python3-pip python3-protobuf curl linux-tools-$(uname -r)</pre></li>
+<li><p>'''Installare il software SGX:''' Aggiungere il repository e installare i pacchetti necessari:</p>
+<pre>echo 'deb [signed-by=/etc/apt/keyrings/intel-sgx-keyring.asc arch=amd64] 
+https://download.01.org/intel-sgx/sgx_repo/ubuntu noble main' | \
+sudo tee /etc/apt/sources.list.d/intel-sgx.list
+wget https://download.01.org/intel-sgx/sgx_repo/ubuntu/intel-sgx-deb.key
+cat intel-sgx-deb.key | sudo tee /etc/apt/keyrings/intel-sgx-keyring.asc &gt; /dev/null
+sudo apt-get update
+sudo apt-get install libsgx-dcap-quote-verify-dev libsgx-epid libsgx-quote-ex libsgx-dcap-ql</pre></li>
+<li><p>'''Installare la toolchain Rust:''' Utilizzare <code>rustup</code> per installare Rust:</p>
+<pre>curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh</pre></li></ol>
+
+<span id="building-di-gramine"></span>
+=== Building di Gramine ===
+
+Per compilare Gramine (versione 1.8) da sorgente, seguire questi passaggi:
+
+<ol>
+<li><p>'''Recuperare il codice sorgente:'''</p>
+<pre>git clone --depth=1 --branch v1.8 https://github.com/gramineproject/gramine.git
+cd gramine
+git checkout v1.8</pre></li>
+<li><p>'''Configurare, compilare e installare Gramine:''' Utilizzare <code>meson</code> per la configurazione e la compilazione. È importante impostare il parametro <code>buildtype</code> a <code>debugoptimized</code> (oppure <code>debug</code>) per abilitare il profiling delle applicazioni Gramine. Se si desidera utilizzare <code>musl</code> come libc, passare l’argomento <code>-Dlibc=musl</code>.</p>
+<pre>meson setup build/ --buildtype=debugoptimized -Dsgx=enabled -Ddcap=enabled -Dlibc=glibc
+meson compile -C build/
+sudo meson compile -C build/ install</pre></li></ol>
+
+<span id="creazione-di-un-container-docker"></span>
+=== Creazione di un Container Docker ===
+
+Se non si utilizza Ubuntu 24.04, è possibile creare un’immagine Docker utilizzando il file <code>dev/Dockerfile</code>. Per costruire l’immagine, eseguire:
+
+<pre>docker build -t enclave-benchmark-dev - &lt;dev/Dockerfile</pre>
+Il processo di build può richiedere tempo, poiché compila <code>perf</code> e <code>libbpf</code> a partire dal codice sorgente del kernel host. Per avviare un container Docker (assicurarsi di utilizzare l’opzione <code>–privileged</code> per accedere ai contatori di performance) e mappare il dispositivo SGX (<code>/dev/sgx_enclave</code>), utilizzare:
+
+<pre>docker run -it -w /app -v $(pwd):/app --privileged --device /dev/sgx_enclave\
+--name enclave-benchmark enclave-benchmark-dev</pre>
+<span id="compilazione-dellapplicazione-da-sorgente"></span>
+=== Compilazione dell’applicazione da sorgente ===
+
+L’applicazione è attualmente installabile '''solo''' compilando il codice sorgente, in quanto dipende fortemente dal sistema operativo host. Per compilare l’applicazione:
+
+<ol>
+<li><p>'''Clonare la repository:'''</p>
+<pre>git clone https://github.com/alarmfox/enclave-benchmark.git</pre></li>
+<li><p>'''Installare il toolchain Rust:''' Installare Rust tramite https://rustup.rs/ seguendo le istruzioni fornite.</p></li>
+<li><p>'''Generare il file <code>vmlinux.h</code>:''' Questo file è necessario per compilare i programmi eBPF. Eseguire:</p>
+<pre>bpftool btf dump file /sys/kernel/btf/vmlinux format c &gt; src/bpf/vmlinux.h</pre></li>
+<li><p>'''Compilare l’applicazione:''' Per una build ottimizzata, eseguire:</p>
+<pre>cargo build --release</pre>
+<p>(Rimuovere il flag <code>–release</code> per una compilazione più rapida ma non ottimizzata.)</p></li>
+<li><p>'''(Opzionale) Copiare l’eseguibile:''' Se necessario, è possibile copiare l’eseguibile in una posizione a scelta:</p>
+<pre>cp target/&lt;debug|release&gt;/enclave-benchmark .</pre></li>
+<li><p>'''Eseguire l’applicazione:''' Verificare l’installazione eseguendo:</p>
+<pre>./enclave-benchmark -V</pre>
+<p>L’output atteso dovrebbe essere simile a:</p>
+<pre>enclave-benchmark 0.1.0</pre></li></ol>
+
+<span id="utilizzo"></span>
+== Utilizzo ==
+
+L’applicazione richiede un file di configurazione in formato <code>TOML</code> per eseguire una serie di benchmark in sequenza. I file di esempio si trovano nella directory <code>examples</code>. Ad esempio, il file <code>examples/full.toml</code> è strutturato come segue:
+
+<pre>[globals]
+sample_size = 3
+enclave_size = [&quot;64M&quot;, &quot;128M&quot;]
+output_directory = &quot;/tmp/test&quot;
+num_threads = [1, 2]
+extra_perf_events = [&quot;cpu-clock&quot;]
+energy_sample_interval = &quot;250ms&quot;
+debug = true
+
+[[tasks]]
+executable = &quot;/bin/dd&quot;
+args = [&quot;if=/dev/zero&quot;, &quot;of=/dev/null&quot;, &quot;count=10000&quot;]
+
+[[tasks]]
+pre_run_executable = &quot;/usr/bin/echo&quot;
+pre_run_args = [&quot;Starting make&quot;]
+
+executable = &quot;/usr/bin/make&quot;
+args = [&quot;-C&quot;, &quot;examples/basic-c-app/&quot;, &quot;-j&quot;, &quot;{{ num_threads }}&quot;, &quot;app&quot;, &quot;output={{ output_directory }}&quot;]
+
+post_run_executable = &quot;/usr/bin/make&quot;
+post_run_args = [&quot;-C&quot;, &quot;examples/basic-c-app&quot;, &quot;clean&quot;, &quot;output={{ output_directory }}&quot;]
+
+[[tasks]]
+executable = &quot;examples/simple-writer/writer&quot;
+args = [&quot;{{ output_directory }}&quot;]
+storage_type = [&quot;encrypted&quot;, &quot;tmpfs&quot;, &quot;untrusted&quot;]</pre>
+<span id="specifiche-del-file-di-input"></span>
+=== Specifiche del File di Input ===
+
+Il file di configurazione <code>TOML</code> è organizzato in due sezioni principali: <code>[globals]</code> e <code>[[tasks]]</code>.
+
+<span id="configurazione-globale-globals"></span>
+==== Configurazione Globale (<code>[globals]</code>) ====
+
+Questa sezione definisce le impostazioni che si applicano a tutte le esecuzioni dei benchmark:
+
+* '''sample_size''' (integer): specifica il numero di ripetizioni per ogni esperimento.
+* '''enclave_size''' (lista di stringhe): definisce le diverse dimensioni della memoria per l’enclave (es. <code>&quot;64M&quot;</code> e <code>&quot;128M&quot;</code>).
+* '''output_directory''' (stringa): directory in cui vengono salvati i risultati e gli output. Questo valore può essere referenziato nei task tramite il placeholder <code>{{ output_directory }}</code>.
+* '''num_threads''' (lista di interi): specifica il numero di thread da utilizzare; il placeholder <code>{{ num_threads }}</code> viene espanso ad ogni esecuzione.
+* '''extra_perf_events''' (lista di stringhe): consente di definire eventi di performance aggiuntivi (ad esempio, <code>&quot;cpu-clock&quot;</code>).
+* '''energy_sample_interval''' (stringa): imposta l’intervallo di campionamento per la misurazione del consumo energetico, includendo l’unità di tempo (ad esempio, <code>&quot;250ms&quot;</code>).
+* '''debug''' (booleano): abilita l’output di debug se impostato a <code>true</code>.
+* '''deep_trace''' (booleano): se abilitato, esegue un’ulteriore iterazione con tracciamento approfondito, il che può rallentare l’esecuzione.
+
+<span id="definizione-dei-task-tasks"></span>
+==== Definizione dei Task (<code>[[tasks]]</code>) ====
+
+Ogni sezione <code>[[tasks]]</code> definisce un task specifico, ovvero un comando o un insieme di comandi da eseguire nel benchmark:
+
+* '''executable''' (stringa): il percorso all’eseguibile da testare (ad esempio, <code>&quot;/bin/dd&quot;</code>).
+* '''args''' (lista di stringhe): gli argomenti da passare all’eseguibile.<br />
+Ad esempio, <code>[&quot;if=/dev/zero&quot;, &quot;of=/dev/null&quot;, &quot;count=10000&quot;]</code> esegue il comando <code>dd</code> con questi parametri.
+
+<span id="campi-opzionali-per-i-task"></span>
+==== Campi Opzionali per i Task ====
+
+È possibile specificare ulteriori comandi da eseguire prima e dopo il task principale:
+
+* '''pre_run_executable''' e '''pre_run_args''': eseguono un comando preliminare (ad esempio, <code>&quot;/usr/bin/echo&quot;</code> per stampare un messaggio).
+* '''post_run_executable''' e '''post_run_args''': eseguono un comando dopo il task principale, utile per operazioni di pulizia o post-processing (ad esempio, <code>make clean</code>).
+* '''storage_type''': specifica le modalità di storage da testare nelle applicazioni basate su Gramine, come <code>&quot;encrypted&quot;</code>, <code>&quot;tmpfs&quot;</code> e <code>&quot;untrusted&quot;</code>.
+
+<span id="espansione-delle-variabili"></span>
+==== Espansione delle Variabili ====
+
+Il file di configurazione supporta dei ''placeholder'' per permettere l’espansione dinamica di variabili:
+
+* <code>{{ output_directory }}</code>: viene sostituito con il valore definito in <code>[globals]</code>.
+* <code>{{ num_threads }}</code>: viene sostituito con ciascun valore specificato nell’array <code>num_threads</code> per ogni esecuzione.
+
+Questo meccanismo consente di generare automaticamente diverse combinazioni di esperimenti senza dover ripetere manualmente le configurazioni.
+
+<span id="esecuzione-dellapplicazione"></span>
+=== Esecuzione dell’Applicazione ===
+
+L’applicazione deve essere eseguita con privilegi di '''root'''. Un esempio di utilizzo in linea di comando è il seguente:
+
+<pre>./enclave-benchmark -c &lt;path/to/config.toml&gt;</pre>
+Le opzioni della CLI includono:
+
+* <code>-v</code>: abilita log del programma. Per ogni <code>v</code>, saranno sempre più dettagliati. Con <code>-vv</code>, si avrà l’output di debug, con <code>-vvv</code> quello di tracing;
+* <code>-c, –config &lt;CONFIG&gt;</code>: specifica il percorso del file di configurazione.
+* <code>–force</code>: rimuove eventuali directory di output preesistenti.
+* <code>-h, –help</code>: mostra il messaggio di aiuto.
+* <code>-V, –version</code>: visualizza la versione dell’applicazione.
+
+In sintesi, grazie a questo sistema di configurazione dinamica, l’applicazione è in grado di eseguire automaticamente una molteplicità di esperimenti variando i parametri specificati nel file <code>TOML</code>. Questo approccio flessibile semplifica la gestione e l’analisi delle prestazioni delle applicazioni, permettendo di ottenere dati dettagliati in modo sistematico.
+
+<span id="risultati"></span>
+== Risultati ==
+
+Per ogni esperimento, l’applicazione crea la seguente struttura:
+
+<div class="forest">
+
+for tree=<span> font=, grow’=0, child anchor=west, parent anchor=south, anchor=west, calign=first, edge path=<span> (!u.south west) +(7.5pt,0) |- node[fill,inner sep=1.25pt] (.child anchor); </span>, before typesetting nodes=<span> if n=1 <span>insert before=<span>[,phantom]</span></span> </span>, fit=band, before computing xy=<span>l=15pt</span>, </span> [prog-threads-&lt;enclave-size&gt;/ [&lt;prog&gt;-&lt;threads&gt;-&lt;enclave-size&gt;-&lt;storage&gt; [1] [2] [..] [sample_size] ] [&lt;prog&gt;.manifest.sgx] [&lt;prog&gt;.sig] [encrypted] [untrusted] ]
+
+
+</div>
+La directory radice, detta <code>experiment_directory</code>, contiene:
+
+* '''prog.manifest.sgx''': il manifest costruito che contiene gli hash di tutti i file trusted, i mount point, ecc.;
+* '''prog.sig''': contiene la firma dell’enclave;
+* '''encrypted''': directory montata come criptata per l’applicazione Gramine. Ogni file sarà protetto da una chiave hardcoded;
+* '''untrusted''': directory montata all’enclave come <code>sgx.allowed_files</code>.
+
+Le directory <code>encrypted</code> e <code>untrusted</code> saranno utilizzate dall’utente attraverso la variabile <code>{{ output_directory }}</code> nel file di input.
+
+Ogni iterazione specificata in <code>globals.sample_size</code> avrà una directory dedicata (denominata con l’indice dell’iterazione) all’interno di <code>&lt;prog&gt;-&lt;threads&gt;-&lt;enclave-size&gt;-&lt;storage&gt;</code>.
+
+<div id="refs" class="references csl-bib-body" entry-spacing="0">
+
+<div id="ref-perf-docs" class="csl-entry">
+
+<span class="csl-left-margin">[1] </span><span class="csl-right-inline"><span>“<span class="nocase">Perf docs </span>.”</span>[[ https://perfwiki.github.io/main/   | https://perfwiki.github.io/main/]], 2025.</span>
+
+
+</div>
+<div id="ref-rapl-docs" class="csl-entry">
+
+<span class="csl-left-margin">[2] </span><span class="csl-right-inline"><span>“<span class="nocase">Powecap docs </span>.”</span>[[ https://docs.kernel.org/power/powercap/powercap.html   | https://docs.kernel.org/power/powercap/powercap.html]], 2025.</span>
+
+
+</div>
+<div id="ref-ebpf-docs" class="csl-entry">
+
+<span class="csl-left-margin">[3] </span><span class="csl-right-inline"><span>“<span class="nocase">eBPF docs </span>.”</span>[[ https://docs.ebpf.io/   | https://docs.ebpf.io/]], 2025.</span>
+
+
+</div>
+<div id="ref-eb-repo" class="csl-entry">
+
+<span class="csl-left-margin">[4] </span><span class="csl-right-inline">G. Capasso,<span>“<span class="nocase"> Enclave benchmark source code</span>.”</span>[[ https://github.com/alarmfox/enclave-benchmark
+                  | https://github.com/alarmfox/enclave-benchmark
+]], 2025.</span>
+
+
+</div>
+<div id="ref-eb-docs" class="csl-entry">
+
+<span class="csl-left-margin">[5] </span><span class="csl-right-inline">G. Capasso, <span>“<span class="nocase">Enclave benchmark docs </span>.”</span>[[ https://alarmfox.github.io/enclave-benchmark/
+                  | https://alarmfox.github.io/enclave-benchmark/
+]], 2025.</span>
+
+
+</div>
+
+</div>
+

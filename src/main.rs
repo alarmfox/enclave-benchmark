@@ -3,6 +3,7 @@ use common::{GlobalParams, Task};
 use profiler::Profiler;
 use serde::Deserialize;
 use std::{
+  env,
   fmt::Debug,
   fs::{remove_dir_all, File},
   io::Read,
@@ -10,7 +11,7 @@ use std::{
 };
 
 use clap::{arg, command, Parser};
-use tracing::{warn, Level};
+use tracing::{debug, warn, Level};
 
 mod collector;
 mod common;
@@ -60,6 +61,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     2 => Level::DEBUG,
     _ => Level::TRACE,
   };
+  if env::var_os("EB_SKIP_SGX").is_some_and(|v| v == "1") {
+    debug!("EB_SKIP_SGX is set; skipping SGX execution");
+  }
   let mut config = String::new();
   tracing_subscriber::fmt().with_max_level(log_level).init();
   let n = File::open(cli.config)?.read_to_string(&mut config)?;

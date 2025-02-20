@@ -20,7 +20,7 @@ use libbpf_rs::{
   MapCore, MapFlags, RingBufferBuilder,
 };
 use plain::Plain;
-use tracing::{debug, error, trace, warn};
+use tracing::{error, trace, warn};
 use utils::{
   extract_rapl_path, get_map_result, get_sgx_stats, process_disk_stats, process_mem_stats,
   run_command_with_args, save_deep_stats, save_energy_data, save_io_metrics, save_perf_output,
@@ -127,7 +127,6 @@ impl DefaultCollector {
 
     // skip sgx to speed development on non sgx machine
     if is_sgx && env::var_os("EB_SKIP_SGX").is_some_and(|v| v == "1") {
-      debug!("EB_SKIP_SGX is set; skipping SGX execution");
       return Ok(());
     }
 
@@ -154,7 +153,7 @@ impl DefaultCollector {
     Ok(())
   }
 
-  #[tracing::instrument(level = "debug", skip(self), err)]
+  #[tracing::instrument(level = "trace", skip(self), err)]
   pub fn attach(
     self: Arc<Self>,
     program: PathBuf,
@@ -167,6 +166,9 @@ impl DefaultCollector {
     for n in 1..me.clone().sample_size + 1 {
       let experiment_directory = output_directory.join(PathBuf::from(n.to_string()));
       create_dir_all(&experiment_directory)?;
+
+      let span = tracing::span!(tracing::Level::TRACE, "iteration", iteration = n);
+      let _enter = span.enter();
 
       if let Some((cmd, args)) = &pre_run {
         run_command_with_args(cmd, args)?;
@@ -181,7 +183,9 @@ impl DefaultCollector {
     }
 
     if self.deep_trace {
-      trace!("entering deep trace; this may take some time...");
+      let span = tracing::span!(tracing::Level::TRACE, "deep_trace");
+      let _enter = span.enter();
+      trace!("entering deep trace");
       let experiment_directory = output_directory.join(PathBuf::from("deep-trace"));
       create_dir_all(&experiment_directory)?;
       me.clone()
@@ -483,7 +487,7 @@ mod utils {
 
   use libbpf_rs::{Map, MapCore, MapFlags};
   use plain::Plain;
-  use tracing::warn;
+  use tracing::{trace, warn};
 
   use crate::{
     collector::{DiskStats, Partition, SGXStats},
@@ -678,24 +682,27 @@ mod utils {
     Ok(())
   }
 
-  pub fn run_command_with_args(
-    cmd: &PathBuf,
-    args: &[String],
-  ) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(code) = Command::new(cmd)
+  pub fn run_command_with_args(cmd: &PathBuf, args: &[String]) -> Result<(), std::io::Error> {
+    let output = Command::new(cmd)
       .args(args)
-      .stdout(Stdio::null())
-      .stderr(Stdio::null())
-      .status()?
-      .code()
-    {
-      if code != 0 {
-        warn!(
-          "command {:?} exited with status {}",
-          cmd.to_string_lossy(),
-          code
-        );
-      }
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped())
+      .output()?;
+
+    if !output.status.success() {
+      let code = output
+        .status
+        .code()
+        .map_or(String::from("unknown"), |c| c.to_string());
+      warn!(
+        "command {:?} exited with status {}: {} {}",
+        cmd.to_string_lossy(),
+        code,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+      );
+    } else {
+      trace!("command {:?} terminated with exit code 0", cmd)
     }
     Ok(())
   }
