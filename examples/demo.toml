@@ -1,5 +1,5 @@
 [globals]
-sample_size = 1
+sample_size = 5
 output_directory = "demo-result"
 extra_perf_events = ["cpu-clock"]
 debug = false
@@ -7,7 +7,6 @@ deep_trace = true
 
 # cpu bound benchmark
 [[tasks]]
-# this should be the full path 
 executable = "examples/nbody/nbodySim"
 args = ["10000000"]
 enclave_size = ["1G"]
