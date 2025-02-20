@@ -20,3 +20,6 @@ pre_run_args = ["-d", "{{ output_directory }}/test", "-u", "giuseppe"]
 executable = "/usr/bin/bonnie++"
 args = ["-d", "{{ output_directory }}/test", "-q", "-c", "{{ num_threads }}", "-u", "giuseppe"]
 storage_type = ["encrypted", "untrusted"]
+
+post_run_executable = "rm"
+post_run_args = ["-r", "{{ output_directory }}/test/*"]
