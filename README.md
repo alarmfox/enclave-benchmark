@@ -7,15 +7,7 @@ Full documentation is available [here](https://alarmfox.github.io/enclave-benchm
 
 If you are using Ubuntu 22.04 or 24.04, you can set up the host by running the script in `dev/setup_host.sh` (run the script from the root directory of the project).
 
-First, get the source code. If you don't want to contribute use the [latest release](https://github.com/alarmfox/enclave-benchmark/archive/refs/tags/v0.1.0.tar.gz) and extraxct it somewhere with:
-
-```sh
-tar xvf </path/to/tar>
-cd enclave-benchmark-v0.1.0
-```
-
-Otherwise, clone the repository:
-
+Clone the repository:
 ```sh
 git clone https://github.com/alarmfox/enclave-benchmark.git
 cd enclave-benchmark
