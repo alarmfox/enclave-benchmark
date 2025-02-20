@@ -128,7 +128,10 @@ impl Profiler {
             "/lib/x86_64-linux-gnu/"
           },
         ),
-        ("executable", executable.to_str().unwrap()),
+        (
+          "executable",
+          executable.canonicalize().unwrap().to_str().unwrap(),
+        ),
         ("enclave_size", enclave_size),
         ("num_threads", &num_threads.to_string()),
         ("num_threads_sgx", &(num_threads + 4).to_string()),
