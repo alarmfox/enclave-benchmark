@@ -2,11 +2,12 @@ import toml
 import sys
 import os
 import re
+import shutil
 
 import pandas as pd
 import numpy as np
 
-from typing import List
+from typing import List, Union
 
 if len(sys.argv) != 3:
     print("Usage: python analysis/pre-process.py </path/to/toml> </path/to/output_directory>")
@@ -78,49 +79,37 @@ def process_perf_samples(files: List[str]) -> pd.DataFrame:
 
     return df_new
 
-def process_energy_samples(files: List[str]) -> pd.DataFrame:
+def process_energy_samples(files: list, W: int = 100_000):  # W in microseconds (default: 10ms)
     """
-    Processes energy sample files to calculate the average energy consumption over time bins.
-
-    This function reads multiple CSV files containing energy data, calculates the relative time for each 
-    energy measurement, and bins the data into intervals of width W. It then computes the mean relative 
-    time and mean energy consumption for each bin across all files.
+    Processes energy sample files to calculate the average energy consumption over a common time grid.
 
     Parameters:
-    files (List[str]): A list of file paths to the CSV files containing energy data. Each file is expected 
-                       to have columns: "timestamp (us)" and "energy (microjoule)".
+    files (List[str]): List of file paths to the CSV files containing energy data.
+    W (int): Coalescence window width in microseconds.
 
     Returns:
-    pd.DataFrame: A DataFrame containing the binned energy data with the following columns:
-                  - 'bin': The bin index, representing intervals of width W.
-                  - 'relative_time': The mean relative time for each bin.
-                  - 'energy (microjoule)': The mean energy consumption for each bin.
+    pd.DataFrame: DataFrame containing the averaged energy data at uniform time intervals with:
+                  - 'relative_time': Time bins (0, W, 2W, ...)
+                  - 'energy (microjoule)': Mean energy across all files at each time bin.
     """
-    all_binned = []
+    common_time_grid = None
+    interpolated_energies = []
 
     for filename in files:
         df = pd.read_csv(filename)
-        
-        df['timestamp (us)'] = df['timestamp (us)'].astype(np.int64)
-        
         df['relative_time'] = df['timestamp (us)'] - df['timestamp (us)'].iloc[0]
-        
-        df['bin'] = (df['relative_time'] // W).astype(int)
-        
-        binned = df.groupby('bin').agg({
-            'relative_time': 'mean',  
-            'energy (microjoule)': 'mean'
-        }).reset_index()
-        
-        all_binned.append(binned)
-    
-    combined = pd.concat(all_binned, ignore_index=True)
-    avg_binned = combined.groupby('bin').agg({
-        'relative_time': 'mean',
-        'energy (microjoule)': 'mean'
-    }).reset_index()
 
-    return avg_binned
+        if common_time_grid is None:
+            max_time = df['relative_time'].max()
+            common_time_grid = np.arange(0, max_time + W, W)
+
+        interp_energy = np.interp(common_time_grid, df['relative_time'], df['energy (microjoule)'])
+        interpolated_energies.append(interp_energy)
+
+    energy_matrix = np.vstack(interpolated_energies)
+    avg_energy = np.mean(energy_matrix, axis=0)
+
+    return pd.DataFrame({'relative_time': common_time_grid, 'energy (microjoule)': avg_energy})
 
 def process_io(files: List[str]) -> pd.DataFrame:
     """
@@ -177,60 +166,69 @@ energy_files = get_energy_files(os.path.join(input_directory, first_exp))
 
 print("Discovered following energy sample files", energy_files)
 
-# non gramine sgx
-for (task, storages) in tasks:
-    print("Processing", task)
-    for thread in num_threads:
-        experiment_dir = os.path.join(input_directory, 
+# Function to process experiments
+def process_experiment(task: str, thread: int, storage: Union[str, None] = None, sgx: bool = False)-> None:
+    """
+    Processes experimental data for a given task and thread configuration, optionally considering storage type and SGX usage.
+
+    This function organizes and processes performance, I/O, and energy data for a specific experimental setup. It reads data from
+    CSV files located in a structured directory hierarchy, processes the data using helper functions, and writes the aggregated
+    results to an output directory. If deep tracing is enabled, it also copies the deep trace data to the output directory.
+
+    Parameters:
+    task (str): The name of the task or executable being analyzed.
+    thread (int): The number of threads used in the experiment.
+    storage (str, optional): The type of storage used in the experiment. Defaults to None, which implies "untrusted" storage.
+    sgx (bool, optional): A flag indicating whether the experiment was run with SGX (Software Guard Extensions). Defaults to False.
+
+    Returns:
+    None: This function does not return a value. It writes the processed data to CSV files in the specified output directory.
+    """
+    sgx_prefix = "sgx-" if sgx else ""
+    storage_suffix = f"-{storage}" if storage else "-untrusted"
+    experiment_type = "gramine-sgx" if sgx else "no-gramine-sgx"
+    
+    experiment_dir = os.path.join(input_directory, 
                                   task, 
-                                  "no-gramine-sgx",
+                                  experiment_type,
                                   f"{task}-{thread}", 
-                                  f"{task}-{thread}-untrusted")
-        
-        result_directory = os.path.join(output_directory, f"{task}-{thread}-untrusted")
-        os.makedirs(result_directory, exist_ok=True)
+                                  f"{task}-{thread}{storage_suffix}")
+    
+    result_directory = os.path.join(output_directory, f"{sgx_prefix}{task}-{thread}{storage_suffix}")
+    os.makedirs(result_directory, exist_ok=True)
 
-        perf_files = [os.path.join(experiment_dir, f"{i}/perf.csv") for i in range(1, n+1)]
-        df = process_perf_samples(perf_files)
-        df.to_csv(os.path.join(result_directory, "perf.csv"), index=False)
+    perf_files = [os.path.join(experiment_dir, f"{i}/perf.csv") for i in range(1, n+1)]
+    df = process_perf_samples(perf_files)
+    df.to_csv(os.path.join(result_directory, "perf.csv"), index=False)
 
-        io_files = [os.path.join(experiment_dir, f"{i}/io.csv") for i in range(1, n+1)]
-        df = process_io(io_files)
-        df.to_csv(os.path.join(result_directory, "io.csv"), index=False)
+    io_files = [os.path.join(experiment_dir, f"{i}/io.csv") for i in range(1, n+1)]
+    df = process_io(io_files)
+    df.to_csv(os.path.join(result_directory, "io.csv"), index=False)
 
-        for file in energy_files:
-            files = [os.path.join(experiment_dir, f"{i}/{file}") for i in range(1, n+1)]
-            avg = process_energy_samples(files)
-            avg.to_csv(os.path.join(result_directory, file))
+    for file in energy_files:
+        files = [os.path.join(experiment_dir, f"{i}/{file}") for i in range(1, n+1)]
+        avg = process_energy_samples(files)
+        avg.to_csv(os.path.join(result_directory, file))
 
+    if deep_trace:
+        deep_trace_directory = os.path.join(experiment_dir, "deep-trace")
+        shutil.copytree(deep_trace_directory, os.path.join(result_directory, "deep-trace"))
+
+# Process non-gramine SGX tasks
+for task, storages in tasks:
+    print("Processing", task, end="... ")
+    for thread in num_threads:
+        process_experiment(task, thread)
+    print("done")
 
 if SKIP_SGX:
     print("Skipped SGX parsing")
     sys.exit(0)
 
-# gramine sgx
-for (task, storages) in tasks:
-    print("Processing", task)
+# Process gramine SGX tasks
+for task, storages in tasks:
+    print("Processing", task, end="... ")
     for thread in num_threads:
         for storage in storages:
-            experiment_dir = os.path.join(input_directory, 
-                                      task, 
-                                      "gramine-sgx",
-                                      f"{task}-{thread}", 
-                                      f"{task}-{thread}-{storage}")
-            
-            result_directory = os.path.join(output_directory, f"sgx-{task}-{thread}-{storage}")
-            os.makedirs(result_directory, exist_ok=True)
-
-            perf_files = [os.path.join(experiment_dir, f"{i}/perf.csv") for i in range(1, n+1)]
-            df = process_perf_samples(perf_files)
-            df.to_csv(os.path.join(result_directory, f"perf.csv"), index=False)
-
-            io_files = [os.path.join(experiment_dir, f"{i}/io.csv") for i in range(1, n+1)]
-            df = process_io(io_files)
-            df.to_csv(os.path.join(result_directory, "io.csv"), index=False)
-
-            for file in energy_files:
-                files = [os.path.join(experiment_dir, f"{i}/{file}") for i in range(1, n+1)]
-                avg = process_energy_samples(files)
-                avg.to_csv(os.path.join(result_directory, file))
+            process_experiment(task, thread, storage, sgx=True)
+    print("done")
