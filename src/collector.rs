@@ -204,6 +204,7 @@ impl DefaultCollector {
   #[tracing::instrument(level = "trace", skip(self, child))]
   fn collect_metrics(self: Arc<Self>, child: Child, is_sgx: bool, deep_trace: bool) -> Metrics {
     let pid = child.id();
+    let stop = Arc::new(AtomicBool::new(false));
 
     let perf_handle = {
       let me = self.clone();
@@ -212,24 +213,33 @@ impl DefaultCollector {
 
     let energy_handle = {
       let me = self.clone();
-      thread::spawn(move || me.monitor_energy_consumption())
+      let stop = stop.clone();
+      thread::spawn(move || me.monitor_energy_consumption(&stop))
     };
 
     let tracing_handle = {
       let me = self.clone();
-      thread::spawn(move || me.trace_program(pid, is_sgx, deep_trace))
+      let stop = stop.clone();
+      thread::spawn(move || me.trace_program(pid, &stop, is_sgx, deep_trace))
     };
 
     let wait_child_handle = {
       let me = self.clone();
-      thread::spawn(move || me.wait_for_child(child))
+      let stop = stop.clone();
+      thread::spawn(move || me.wait_for_child(child, &stop))
     };
 
-    let trace_result = tracing_handle.join().unwrap();
-
     let (stdout, stderr) = wait_child_handle.join().unwrap();
+    trace!("target process joined!");
+
+    let trace_result = tracing_handle.join().unwrap();
+    trace!("trace thread joined!");
+
     let energy_stats = energy_handle.join().unwrap();
+    trace!("energy thread joined");
+
     let perf_output = perf_handle.join().unwrap();
+    trace!("perf thread joined");
 
     let disk_stats = process_disk_stats(&self.partitions, trace_result.disk_counters);
     let (sys_write_count, sys_write_avg, sys_read_count, sys_read_avg) =
@@ -289,9 +299,9 @@ impl DefaultCollector {
     perf_output
   }
 
-  fn monitor_energy_consumption(&self) -> HashMap<String, Vec<EnergySample>> {
+  fn monitor_energy_consumption(&self, stop: &AtomicBool) -> HashMap<String, Vec<EnergySample>> {
     let mut measures: HashMap<String, Vec<EnergySample>> = HashMap::new();
-    while !self.stop.clone().load(Ordering::Relaxed) {
+    while !stop.load(Ordering::Relaxed) {
       let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
@@ -315,7 +325,13 @@ impl DefaultCollector {
     measures
   }
   #[allow(clippy::type_complexity)]
-  fn trace_program(&self, pid: u32, is_sgx: bool, deep_trace: bool) -> TraceResult {
+  fn trace_program(
+    &self,
+    pid: u32,
+    stop: &AtomicBool,
+    is_sgx: bool,
+    deep_trace: bool,
+  ) -> TraceResult {
     let skel_builder = TracerSkelBuilder::default();
     let mut open_object = MaybeUninit::uninit();
     let open_skel = skel_builder
@@ -350,7 +366,7 @@ impl DefaultCollector {
     };
 
     // wait for target program to end
-    while !self.stop.clone().load(Ordering::Relaxed) {
+    while !stop.load(Ordering::Relaxed) {
       if let Some((ref mut rb, _)) = maybe_ring_buffer {
         rb.poll(Duration::from_millis(250))
           .expect("cannot poll from ring buffer");
@@ -427,43 +443,39 @@ impl DefaultCollector {
     }
   }
 
-  fn wait_for_child(self: Arc<Self>, child: Child) -> (Vec<u8>, Vec<u8>) {
+  fn wait_for_child(self: Arc<Self>, child: Child, finished: &AtomicBool) -> (Vec<u8>, Vec<u8>) {
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
-    let child = Arc::new(Mutex::new(child));
-    let sig_wait = {
-      let me = self.clone();
-      let child = child.clone();
-      thread::spawn(move || {
-        // busy wait
-        while !me.stop.clone().load(Ordering::Relaxed) {
-          thread::sleep(Duration::from_secs(1));
-        }
-        let mut child = child.lock().unwrap();
-        child
-          .kill()
-          .unwrap_or_else(|e| error!("failed to kill child process: {e}"));
-      })
-    };
-    let child: Child = Arc::try_unwrap(child).unwrap().into_inner().unwrap();
-    match child.wait_with_output() {
-      Ok(output) => {
-        if !output.status.success() {
+    let child = Mutex::new(child);
+
+    let stop = self.stop.clone();
+    while !stop.load(Ordering::Relaxed) {
+      if let Ok(Some(status)) = child.lock().unwrap().try_wait() {
+        if !status.success() {
           warn!(
             "child process exited with non-zero code {}",
-            output
-              .status
+            status
               .code()
               .map_or("unknown".to_string(), |c| c.to_string())
           );
         }
-        stderr = output.stderr;
-        stdout = output.stdout;
+        break;
       }
-      Err(e) => error!("target program exited with error {e}"),
+
+      thread::sleep(Duration::from_secs(1));
     }
-    self.stop();
-    sig_wait.join().unwrap();
+    let mut child = child.lock().unwrap();
+    if let Some(mut stdout_pipe) = child.stdout.take() {
+      let _ = std::io::copy(&mut stdout_pipe, &mut stdout);
+    }
+    if let Some(mut stderr_pipe) = child.stderr.take() {
+      let _ = std::io::copy(&mut stderr_pipe, &mut stderr);
+    }
+    if let Err(e) = child.kill() {
+      error!("cannot kill child process with pid {}: {}", child.id(), e);
+    }
+
+    finished.store(true, Ordering::Relaxed);
     (stdout, stderr)
   }
 
