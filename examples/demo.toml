@@ -8,15 +8,18 @@ deep_trace = true
 # cpu bound benchmark
 [[tasks]]
 executable = "examples/nbody/nbodySim"
-args = ["10000000"]
+args = ["1000000"]
 enclave_size = ["1G"]
 
 # i/o bound benchmark
+# bonnie++ creates threads. Needs to pass at least 4 threads
+# https://github.com/gramineproject/gsc/issues/126
 [[tasks]]
-executable = "/usr/bin/bonnie++"
+executable = "/usr/sbin/bonnie++"
 args = ["-d", "{{ output_directory }}", "-q", "-u", "giuseppe", "-r", "{{ ram_size }}"]
 storage_type = ["encrypted", "untrusted"]
 enclave_size = ["512M"]
+num_threads = [4]
 
 post_run_executable = "rm"
 post_run_args = ["-rf", "{{ output_directory }}/Bonnie.*"]
