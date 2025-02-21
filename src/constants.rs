@@ -143,33 +143,14 @@ pub const TRACE_CSV_HEADER: &str = "timestamp (ns),event";
 /// - `cpu-cycles`: CPU cycles.
 /// - `stalled-cycles-frontend`: Cycles where the frontend is stalled.
 /// - `page-faults`: Number of page faults.
-pub const DEFAULT_PERF_EVENTS: [&str; 28] = [
-  "user_time",
-  "system_time",
-  "duration_time",
-  "cycles",
-  "instructions",
-  "cache-misses",
-  "L1-dcache-loads",
-  "L1-dcache-load-misses",
-  "L1-dcache-prefetches",
-  "L1-icache-loads",
-  "L1-icache-load-misses",
-  "dTLB-loads",
-  "dTLB-load-misses",
-  "iTLB-loads",
-  "iTLB-load-misses",
-  "branch-loads",
-  "branch-load-misses",
-  "branch-instructions",
+pub const DEFAULT_PERF_EVENTS: [&str; 9] = [
   "branch-misses",
   "cache-misses",
-  "cache-references",
   "cpu-cycles",
+  "cpu-cycles",
+  "duration_time",
   "instructions",
   "stalled-cycles-frontend",
-  "branch-misses",
-  "cache-misses",
-  "cpu-cycles",
-  "page-faults",
+  "system_time",
+  "user_time",
 ];

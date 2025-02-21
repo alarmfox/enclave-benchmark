@@ -124,6 +124,7 @@ impl DefaultCollector {
     args: &[String],
     experiment_directory: &Path,
     deep_trace: bool,
+    threads: usize,
   ) -> Result<(), std::io::Error> {
     let is_sgx = program.as_os_str() == "gramine-sgx";
 
@@ -134,6 +135,7 @@ impl DefaultCollector {
 
     let cmd = Command::new(program)
       .args(args)
+      .env("OMP_NUM_THREADS", threads.to_string())
       .stdout(Stdio::piped())
       .stderr(Stdio::piped())
       .spawn();
@@ -162,6 +164,7 @@ impl DefaultCollector {
     args: Vec<String>,
     pre_run: Option<(PathBuf, Vec<String>)>,
     post_run: Option<(PathBuf, Vec<String>)>,
+    threads: usize,
     output_directory: &Path,
   ) -> Result<(), Box<dyn std::error::Error>> {
     let me = self.clone();
@@ -179,8 +182,13 @@ impl DefaultCollector {
         run_command_with_args(cmd, args)?;
       }
 
-      me.clone()
-        .run_experiment(&program, &args, experiment_directory.as_path(), false)?;
+      me.clone().run_experiment(
+        &program,
+        &args,
+        experiment_directory.as_path(),
+        false,
+        threads,
+      )?;
 
       if let Some((cmd, args)) = &post_run {
         run_command_with_args(cmd, args)?;
@@ -193,8 +201,13 @@ impl DefaultCollector {
       trace!("entering deep trace");
       let experiment_directory = output_directory.join(PathBuf::from("deep-trace"));
       create_dir_all(&experiment_directory)?;
-      me.clone()
-        .run_experiment(&program, &args, experiment_directory.as_path(), true)?;
+      me.clone().run_experiment(
+        &program,
+        &args,
+        experiment_directory.as_path(),
+        true,
+        threads,
+      )?;
 
       trace!("deep trace finished");
     }
@@ -754,6 +767,7 @@ mod test {
         vec!["1".to_string()],
         None,
         None,
+        1,
         output_directory.path(),
       )
       .unwrap();

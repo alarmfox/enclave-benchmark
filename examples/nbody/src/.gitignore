@@ -1,0 +1,11 @@
+/.cflags
+/openmp-test
+/openmp-test.exe
+/openmp.mk
+/nbody
+/nbody.exe
+/nvcc-flags.mk
+/.cc
+
+# From clang -fsave-optimization-record
+/*.opt.yaml

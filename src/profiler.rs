@@ -326,9 +326,14 @@ impl Profiler {
           ),
         };
 
-        collector
-          .clone()
-          .attach(program, args, pre_task, post_task, &result_path)?;
+        collector.clone().attach(
+          program,
+          args,
+          pre_task,
+          post_task,
+          *num_threads,
+          &result_path,
+        )?;
       }
       Ok(())
     };

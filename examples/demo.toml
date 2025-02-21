@@ -1,27 +1,39 @@
 [globals]
-sample_size = 5
+sample_size = 2
 output_directory = "demo-result"
 extra_perf_events = ["cpu-clock"]
 debug = false
 deep_trace = true
 
 # cpu bound benchmark
+# Since this implementation relies on OpenMP, the number of threads is passed 
+# using OMP_NUM_THREADS environment variables 
+# populated in the default manifest
+# bodies is multiplied by 1024
 [[tasks]]
-executable = "examples/nbody/nbodySim"
-args = ["1000000"]
+executable = "examples/nbody/build/nbody"
+args = ["--bodies", "96", "--iterations", "8"]
 enclave_size = ["1G"]
+num_threads = [1, 2, 4]
 
 # i/o bound benchmark
 # bonnie++ creates threads. Needs to pass at least 4 threads
 # https://github.com/gramineproject/gsc/issues/126
-
+# [[tasks]]
+# executable = "/usr/bin/bonnie++"
+# # WARNING: PUT THE CURRENT USER INSTEAD OF <USER>
+# args = ["-d", "{{ output_directory }}", "-q", "-u", "giuseppe", "-r", "{{ ram_size }}"]
+# storage_type = ["encrypted", "untrusted"]
+# enclave_size = ["1G"]
+# num_threads = [4]
+#
+# post_run_executable = "rm"
+# post_run_args = ["-rf", "{{ output_directory }}/Bonnie.*"]
 [[tasks]]
-executable = "/usr/sbin/bonnie++"
-# WARNING: PUT THE CURRENT USER INSTEAD OF <USER>
-args = ["-d", "{{ output_directory }}", "-q", "-u", "<USER>", "-r", "{{ ram_size }}"]
+executable = "/bin/dd"
+args = ["if=/dev/random", "of={{ output_directory }}/a.random", "count=1000000"]
 storage_type = ["encrypted", "untrusted"]
-enclave_size = ["512M"]
-num_threads = [4]
+enclave_size = ["256M", "512M"]
 
 post_run_executable = "rm"
-post_run_args = ["-rf", "{{ output_directory }}/Bonnie.*"]
+post_run_args = ["-rf", "{{ output_directory }}/a.random"]
