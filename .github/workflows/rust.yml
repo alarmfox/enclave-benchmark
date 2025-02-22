@@ -101,4 +101,6 @@ jobs:
         cargo clippy --all -- -D warnings
 
     - name: Run test
-      run: cargo test --verbose -- --skip collector
+      run: |
+        source ./dev/setup_env.sh
+        cargo test --verbose
