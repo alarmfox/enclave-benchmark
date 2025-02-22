@@ -82,6 +82,8 @@ impl Profiler {
     }: &ExperimentConfig,
     threads: usize,
     size: &str,
+    encrypted_path: &Path,
+    untrusted_path: &Path,
     custom_manifest_path: Option<PathBuf>,
   ) -> PyResult<()> {
     Python::with_gil(|py| {
@@ -91,25 +93,6 @@ impl Profiler {
       let manifest_path =
         output_path.join(PathBuf::from(format!("{ }.manifest.sgx", executable_name)));
       let signature_path = output_path.join(format!("{}.sig", executable_name));
-
-      // storage
-      let paths = [
-        output_path.join(StorageType::Encrypted.to_string()),
-        output_path.join(StorageType::Untrusted.to_string()),
-      ];
-
-      for path in &paths {
-        if let Err(e) = create_dir_all(path) {
-          if e.kind() != std::io::ErrorKind::AlreadyExists {
-            return Err(e.into());
-          }
-        }
-      }
-
-      let paths: Vec<PathBuf> = paths
-        .iter()
-        .map(|p| p.canonicalize())
-        .collect::<Result<Vec<_>, _>>()?;
 
       // create env
       let py_env = PyDict::new(py);
@@ -129,8 +112,8 @@ impl Profiler {
 
       let args = PyDict::new(py);
       args.set_item("env", py_env)?;
-      args.set_item("encrypted_path", paths[0].to_str().unwrap())?;
-      args.set_item("untrusted_path", paths[1].to_str().unwrap())?;
+      args.set_item("encrypted_path", encrypted_path)?;
+      args.set_item("untrusted_path", untrusted_path)?;
       args.set_item(
         "arch_libdir",
         if cfg!(target_env = "musl") {
@@ -139,11 +122,11 @@ impl Profiler {
           "/lib/x86_64-linux-gnu/"
         },
       )?;
-      args.set_item("executable", program.canonicalize()?.to_str().unwrap())?;
+      args.set_item("executable", program.canonicalize()?)?;
       args.set_item("enclave_size", size)?;
-      args.set_item("num_threads", threads.to_string())?;
-      args.set_item("num_threads_sgx", (threads + 4).to_string())?;
-      args.set_item("executable_path", executable_path.to_str().unwrap())?;
+      args.set_item("num_threads", threads)?;
+      args.set_item("num_threads_sgx", threads + 4)?;
+      args.set_item("executable_path", executable_path)?;
       args.set_item("debug", if self.debug { "debug" } else { "none" })?;
       args.set_item(
         "libc",
@@ -216,15 +199,42 @@ impl Profiler {
             "gramine-sgx/{}-{}-{}-{}",
             program_name, threads, enclave_size, storage_type
           ));
-          let storage_path = experiment_path.join(storage_type.to_string());
 
-          let mut experiment_config =
-            build_experiment(task.clone(), threads, &experiment_path, &storage_path);
+          // storage
+          let paths: Vec<PathBuf> = [
+            experiment_path.join(StorageType::Encrypted.to_string()),
+            experiment_path.join(StorageType::Untrusted.to_string()),
+          ]
+          .iter()
+          .map(|path| {
+            create_dir_all(path).or_else(|e| {
+              if e.kind() != std::io::ErrorKind::AlreadyExists {
+                return Err(e);
+              }
+              Ok(())
+            })?;
+            path.canonicalize()
+          })
+          .collect::<Result<Vec<_>, _>>()?;
+
+          let correct_storage_path = match storage_type {
+            StorageType::Encrypted => &paths[0],
+            StorageType::Untrusted => &paths[1],
+          };
+
+          let mut experiment_config = build_experiment(
+            task.clone(),
+            threads,
+            &experiment_path,
+            correct_storage_path,
+          );
 
           self.build_and_sign_enclave(
             &experiment_config,
             threads,
             enclave_size,
+            &paths[0],
+            &paths[1],
             task.custom_manifest_path.clone(),
           )?;
           // since this is a Gramine enclave
@@ -356,16 +366,19 @@ mod test {
     };
 
     let experiment_path = output_directory.path().join("experiment");
-    let storage_path = experiment_path.join("storage");
-    create_dir_all(&storage_path).unwrap();
+    let encrypted_path = experiment_path.join("encrypted");
+    let untrusted_path = experiment_path.join("untrusted");
+    create_dir_all(&encrypted_path).unwrap();
 
-    let experiment_config = build_experiment(task.clone(), 4, &experiment_path, &storage_path);
+    let experiment_config = build_experiment(task.clone(), 4, &experiment_path, &encrypted_path);
 
     profiler
       .build_and_sign_enclave(
         &experiment_config,
         4,
         &task.enclave_size[0],
+        &encrypted_path,
+        &untrusted_path,
         task.custom_manifest_path.clone(),
       )
       .unwrap();
