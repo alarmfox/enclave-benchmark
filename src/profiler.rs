@@ -397,26 +397,6 @@ mod test {
   }
 
   #[test]
-  fn example_configs() {
-    let mut buf = String::new();
-    let examples = [
-      "examples/full.toml",
-      "examples/simple.toml",
-      "examples/iobound.toml",
-      "examples/minimal.toml",
-      "examples/demo.toml",
-    ];
-    for file in examples {
-      let n = File::open(PathBuf::from(file))
-        .unwrap()
-        .read_to_string(&mut buf)
-        .unwrap();
-      toml::from_str::<Config>(&buf[..n]).unwrap();
-      buf.clear();
-    }
-  }
-
-  #[test]
   fn build_experiment_success() {
     let output_directory = TempDir::new().unwrap().path().join("storage");
     let args = vec![

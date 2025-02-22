@@ -126,7 +126,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod test {
+  use std::fs;
+
   use crate::{common::StorageType, Config};
+
+  #[test]
+  fn example_configs() {
+    let examples = [
+      "examples/full.toml",
+      "examples/simple.toml",
+      "examples/iobound.toml",
+      "examples/minimal.toml",
+      "examples/demo.toml",
+    ];
+    for file in examples {
+      let content = fs::read_to_string(file).unwrap();
+      toml::from_str::<Config>(&content).unwrap();
+    }
+  }
 
   #[test]
   fn parse_config() {
