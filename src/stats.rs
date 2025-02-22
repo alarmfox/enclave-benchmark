@@ -47,7 +47,7 @@ impl Partition {
     Self {
       name: parts[3].to_string(),
       // https://man7.org/linux/man-pages/man3/makedev.3.html
-      dev: major << 20 | minor,
+      dev: (major << 20) | minor,
     }
   }
 }
