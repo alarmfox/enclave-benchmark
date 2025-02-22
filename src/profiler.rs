@@ -8,18 +8,19 @@ use std::{
 
 use handlebars::Handlebars;
 use pyo3::{
-  types::{IntoPyDict, PyAnyMethods, PyModule},
+  types::{PyAnyMethods, PyDict, PyModule},
   Bound, PyAny, PyResult, Python,
 };
 use rsa::{
   pkcs1::{self, EncodeRsaPrivateKey},
   BigUint, RsaPrivateKey,
 };
+use tracing::trace;
 
 use crate::{
   collector::DefaultCollector,
-  common::{StorageType, Task},
-  constants::{DEFAULT_RAM_SIZE, MANIFEST},
+  common::{ExperimentConfig, StorageType, Task},
+  constants::MANIFEST,
 };
 
 /// A `Profiler` is responsible for managing the benchmarking of tasks within an SGX enclave environment.
@@ -49,14 +50,6 @@ pub struct Profiler {
   debug: bool,
 }
 
-#[derive(Debug, Clone)]
-struct GramineMetadata {
-  manifest_path: PathBuf,
-  encrypted_path: PathBuf,
-  tmpfs_path: PathBuf,
-  untrusted_path: PathBuf,
-}
-
 impl Profiler {
   pub fn new(
     output_directory: PathBuf,
@@ -82,34 +75,52 @@ impl Profiler {
     })
   }
 
-  #[tracing::instrument(level = "debug", skip(self), err)]
   fn build_and_sign_enclave(
     &self,
-    executable: &PathBuf,
-    experiment_path: &PathBuf,
-    num_threads: &usize,
-    enclave_size: &str,
+    ExperimentConfig {
+      program,
+      output_path,
+      env,
+      ..
+    }: &ExperimentConfig,
+    threads: usize,
+    size: &str,
     custom_manifest_path: Option<PathBuf>,
-  ) -> PyResult<GramineMetadata> {
-    // ported from https://gramine.readthedocs.io/en/stable/python/api.html
+  ) -> PyResult<()> {
     Python::with_gil(|py| {
-      let executable_name = executable.file_name().unwrap().to_str().unwrap();
-      let executable_path = executable.parent().unwrap();
+      // variables
+      let executable_name = program.file_name().unwrap().to_str().unwrap();
+      let executable_path = program.parent().unwrap();
       let manifest_path =
-        experiment_path.join(PathBuf::from(format!("{}.manifest.sgx", executable_name)));
+        output_path.join(PathBuf::from(format!("{ }.manifest.sgx", executable_name)));
+      let signature_path = output_path.join(format!("{}.sig", executable_name));
 
-      let signature_path = experiment_path.join(PathBuf::from(format!("{}.sig", executable_name)));
+      // storage
+      let paths = [
+        output_path.join(StorageType::Encrypted.to_string()),
+        output_path.join(StorageType::Untrusted.to_string()),
+      ];
 
-      let encrypted_path = experiment_path.join("encrypted");
-      let untrusted_path = experiment_path.join("untrusted");
-
-      for path in [&encrypted_path, &untrusted_path] {
-        create_dir_all(path)?;
+      for path in &paths {
+        if let Err(e) = create_dir_all(path) {
+          if e.kind() != std::io::ErrorKind::AlreadyExists {
+            return Err(e.into());
+          }
+        }
       }
-      let encrypted_path = encrypted_path.canonicalize().unwrap();
-      let untrusted_path = untrusted_path.canonicalize().unwrap();
 
-      let tmpfs_path = PathBuf::from("/tmp");
+      let paths: Vec<PathBuf> = paths
+        .iter()
+        .map(|p| p.canonicalize())
+        .collect::<Result<Vec<_>, _>>()?;
+
+      // create env
+      let py_env = PyDict::new(py);
+      if let Some(ref env_map) = env {
+        for (key, val) in env_map {
+          py_env.set_item(key, val)?;
+        }
+      }
 
       // build enclave
       let gramine = PyModule::import(py, "graminelibos")?;
@@ -119,42 +130,32 @@ impl Profiler {
       let get_tbssigstruct = gramine.getattr("get_tbssigstruct")?;
       let sign_with_local_key = gramine.getattr("sign_with_local_key")?;
 
-      let args = [
-        (
-          "arch_libdir",
-          if cfg!(target_env = "musl") {
-            "/lib"
-          } else {
-            "/lib/x86_64-linux-gnu/"
-          },
-        ),
-        (
-          "executable",
-          executable.canonicalize().unwrap().to_str().unwrap(),
-        ),
-        ("enclave_size", enclave_size),
-        ("num_threads", &num_threads.to_string()),
-        ("num_threads_sgx", &(num_threads + 4).to_string()),
-        ("encrypted_path", encrypted_path.to_str().unwrap()),
-        ("untrusted_path", untrusted_path.to_str().unwrap()),
-        ("tmpfs_path", tmpfs_path.to_str().unwrap()),
-        (
-          "start_directory",
-          manifest_path.parent().unwrap().to_str().unwrap(),
-        ),
-        ("executable_path", executable_path.to_str().unwrap()),
-        ("debug", if self.debug { "debug" } else { "none" }),
-        (
-          "libc",
-          if cfg!(target_env = "musl") {
-            "musl"
-          } else {
-            "glibc"
-          },
-        ),
-      ]
-      .into_py_dict(py)?;
-
+      let args = PyDict::new(py);
+      args.set_item("env", py_env)?;
+      args.set_item("encrypted_path", paths[0].to_str().unwrap())?;
+      args.set_item("untrusted_path", paths[1].to_str().unwrap())?;
+      args.set_item(
+        "arch_libdir",
+        if cfg!(target_env = "musl") {
+          "/lib"
+        } else {
+          "/lib/x86_64-linux-gnu/"
+        },
+      )?;
+      args.set_item("executable", program.canonicalize()?.to_str().unwrap())?;
+      args.set_item("enclave_size", size)?;
+      args.set_item("num_threads", threads.to_string())?;
+      args.set_item("num_threads_sgx", (threads + 4).to_string())?;
+      args.set_item("executable_path", executable_path.to_str().unwrap())?;
+      args.set_item("debug", if self.debug { "debug" } else { "none" })?;
+      args.set_item(
+        "libc",
+        if cfg!(target_env = "musl") {
+          "musl"
+        } else {
+          "glibc"
+        },
+      )?;
       let manifest: Bound<'_, PyAny> = match custom_manifest_path {
         Some(p) => {
           let mut f = File::open(p)?;
@@ -183,7 +184,10 @@ impl Profiler {
 
       sigstruct.call_method1(
         "sign",
-        (sign_with_local_key, self.private_key_path.to_str().unwrap()),
+        (
+          sign_with_local_key,
+          self.private_key_path.clone().into_os_string(),
+        ),
       )?;
       // Save the signature to disk
       let sig_bytes: Vec<u8> = sigstruct
@@ -191,195 +195,120 @@ impl Profiler {
         .extract()?;
 
       std::fs::write(&signature_path, sig_bytes)?;
-      Ok(GramineMetadata {
-        manifest_path,
-        encrypted_path: PathBuf::from("/encrypted/"),
-        tmpfs_path,
-        untrusted_path: PathBuf::from("/untrusted/"),
-      })
+      Ok(())
     })
-  }
-
-  #[allow(clippy::type_complexity)]
-  #[allow(clippy::too_many_arguments)]
-  fn build_and_expand_args(
-    args: Vec<String>,
-    pre_args: Vec<String>,
-    post_args: Vec<String>,
-    num_threads: usize,
-    enclave_size: usize,
-    storage_type: &StorageType,
-    fallback_storage_path: &Path,
-    gramine_metadata: Option<GramineMetadata>,
-  ) -> Result<(Vec<String>, Vec<String>, Vec<String>), Box<dyn std::error::Error>> {
-    // detect storage type if in sgx
-    // otherwise a simple directory is returned
-    let output_directory = match gramine_metadata.clone() {
-      Some(metadata) => match storage_type {
-        StorageType::Encrypted => metadata.encrypted_path,
-        StorageType::Untrusted => metadata.untrusted_path,
-        StorageType::Tmpfs => metadata.tmpfs_path,
-      },
-      None => fallback_storage_path.to_path_buf(),
-    };
-
-    // expand args
-    let context = HashMap::from([
-      ("num_threads", num_threads.to_string()),
-      (
-        "output_directory",
-        output_directory.to_string_lossy().into_owned(),
-      ),
-      ("ram_size", enclave_size.to_string()),
-    ]);
-    let handlebars = Handlebars::new();
-
-    let mut args: Vec<Vec<String>> = [&args, &pre_args, &post_args]
-      .iter()
-      .map(|arg_list| {
-        arg_list
-          .iter()
-          .map(|template_string| handlebars.render_template(template_string, &context))
-          .collect::<Result<Vec<String>, _>>()
-      })
-      .collect::<Result<Vec<_>, _>>()?;
-
-    if let Some(metadata) = gramine_metadata {
-      args[0].insert(
-        0,
-        metadata
-          .manifest_path
-          .to_str()
-          .unwrap()
-          .replacen(".manifest.sgx", "", 1),
-      );
-    }
-
-    Ok((args.remove(0), args.remove(0), args.remove(0)))
   }
 
   #[tracing::instrument(skip(self), level = "info", err)]
   pub fn profile(&self, task: Task) -> Result<(), Box<dyn std::error::Error>> {
-    let program_name = task.executable.file_name().unwrap().to_str().unwrap();
+    let program_name = task.executable.clone();
+    let program_name = program_name.file_name().unwrap().to_str().unwrap();
     let task_path = self.output_directory.join(program_name);
-    let collector = self.collector.clone();
 
-    let process_task = |program: &PathBuf,
-                        num_threads: &usize,
-                        sgx_metadata: Option<(&str, GramineMetadata)>|
-     -> Result<(), Box<dyn std::error::Error>> {
-      let (enclave_size, experiment_path) = match sgx_metadata {
-        Some((size, _)) => (
-          size[..size.len() - 1]
-            .parse::<usize>()
-            .expect("bad size value"),
-          task_path.join(format!(
-            "gramine-sgx/{}-{}-{}",
-            program_name, num_threads, size
-          )),
-        ),
-        None => (
-          DEFAULT_RAM_SIZE,
-          task_path.join(format!("no-gramine-sgx/{}-{}", program_name, num_threads)),
-        ),
-      };
-      create_dir_all(&experiment_path)?;
-
-      // create plaintext storage path
-      let fallback_storage_path = experiment_path.join("storage");
-
-      let storage_types = if sgx_metadata.is_some() {
-        task.storage_type.clone()
-      } else {
-        create_dir_all(&fallback_storage_path)?;
-        vec![StorageType::Untrusted]
-      };
-
-      for storage_type in &storage_types {
-        let (args, pre_args, post_args) = Self::build_and_expand_args(
-          task.args.clone(),
-          task.pre_run_args.clone(),
-          task.post_run_args.clone(),
-          *num_threads,
-          enclave_size,
-          storage_type,
-          &fallback_storage_path,
-          sgx_metadata.clone().map(|x| x.1),
-        )?;
-
-        let pre_task = task.pre_run_executable.clone().map(|e| (e, pre_args));
-        let post_task = task.post_run_executable.clone().map(|e| (e, post_args));
-
-        let (program, args, result_path) = match sgx_metadata.clone() {
-          Some((size, _)) => (
-            PathBuf::from("gramine-sgx"),
-            args,
-            experiment_path.join(format!(
-              "{}-{}-{}-{}",
-              program_name, num_threads, size, storage_type
-            )),
-          ),
-          None => (
-            program.clone(),
-            args,
-            experiment_path.join(format!("{}-{}-{}", program_name, num_threads, storage_type)),
-          ),
-        };
-
-        collector.clone().attach(
-          program,
-          args,
-          pre_task,
-          post_task,
-          *num_threads,
-          &result_path,
-        )?;
-      }
-      Ok(())
-    };
-
-    let num_threads = if let Some(threads) = task.num_threads {
-      threads
-    } else {
-      vec![1]
-    };
-
-    for num_threads in &num_threads {
+    trace!("Running sgx configuration");
+    for threads in task.num_threads.clone() {
       for enclave_size in &task.enclave_size {
-        let gramine_metadata = self.build_and_sign_enclave(
-          &task.executable,
-          &task_path.join(format!(
-            "gramine-sgx/{}-{}-{}",
-            program_name, num_threads, enclave_size
-          )),
-          num_threads,
-          enclave_size,
-          task.custom_manifest_path.clone(),
-        )?;
-        process_task(
-          &task.executable,
-          num_threads,
-          Some((enclave_size, gramine_metadata)),
-        )?;
+        for storage_type in &task.storage_type {
+          let experiment_path = task_path.join(format!(
+            "gramine-sgx/{}-{}-{}-{}",
+            program_name, threads, enclave_size, storage_type
+          ));
+          let storage_path = experiment_path.join(storage_type.to_string());
+
+          let experiment_config =
+            build_experiment(task.clone(), threads, &experiment_path, &storage_path);
+
+          self.build_and_sign_enclave(
+            &experiment_config,
+            threads,
+            enclave_size,
+            task.custom_manifest_path.clone(),
+          )?;
+          self.collector.clone().attach(experiment_config)?;
+        }
       }
-      process_task(&task.executable, num_threads, None)?;
+    }
+
+    trace!("Running non sgx configuration");
+    for threads in task.num_threads.clone() {
+      let experiment_path = task_path.join(format!("no-gramine-sgx/{}-{}", program_name, threads));
+      let storage_path = experiment_path.join("storage");
+      // ensure storage exists
+      create_dir_all(&storage_path).unwrap();
+      let experiment_config =
+        build_experiment(task.clone(), threads, &experiment_path, &storage_path);
+      self.collector.clone().attach(experiment_config)?;
     }
     Ok(())
   }
 }
 
+fn build_experiment(
+  Task {
+    executable,
+    args,
+    pre_run_executable,
+    pre_run_args,
+    post_run_executable,
+    post_run_args,
+    env,
+    ..
+  }: Task,
+  threads: usize,
+  experiment_path: &Path,
+  storage_path: &Path,
+) -> ExperimentConfig {
+  let context = HashMap::from([
+    ("num_threads", threads.to_string()),
+    (
+      "output_directory",
+      storage_path.to_string_lossy().into_owned(),
+    ),
+  ]);
+  let handlebars = Handlebars::new();
+
+  let expanded_args: Vec<Vec<String>> = [&args, &pre_run_args, &post_run_args]
+    .iter()
+    .map(|arg_list| {
+      arg_list
+        .iter()
+        .map(|template_string| handlebars.render_template(template_string, &context))
+        .collect::<Result<Vec<String>, _>>()
+    })
+    .collect::<Result<Vec<_>, _>>()
+    .unwrap();
+
+  let [args, pre_run_args, post_run_args] = expanded_args.try_into().unwrap();
+
+  ExperimentConfig {
+    program: executable.to_path_buf(),
+    pre_run: pre_run_executable.map(|x| (x, pre_run_args)),
+    post_run: post_run_executable.map(|x| (x, post_run_args)),
+    args,
+    output_path: experiment_path.to_path_buf(),
+    env: env.map(|c| {
+      let mut expanded_env = HashMap::new();
+      for (key, val) in c {
+        let rendered = handlebars.render_template(&val, &context).unwrap();
+        expanded_env.insert(key, rendered);
+      }
+      expanded_env
+    }),
+  }
+}
+
 #[cfg(test)]
 mod test {
-  use std::time::Duration;
+  use std::{collections::HashMap, fs::create_dir_all, time::Duration};
 
   use common::StorageType;
-  use profiler::GramineMetadata;
+  use profiler::build_experiment;
   use tempfile::TempDir;
 
   use crate::*;
 
   #[test]
-  fn build_and_sign_enclave() {
+  fn build_and_sign_enclave_success() {
     let collector = collector::DefaultCollector::new(1, false, Duration::from_millis(100), None);
     let output_directory = TempDir::new().unwrap();
     let profiler = Profiler::new(
@@ -389,16 +318,51 @@ mod test {
     )
     .unwrap();
 
+    let task = Task {
+      executable: PathBuf::from("/bin/ls"),
+      args: vec![],
+      pre_run_executable: None,
+      pre_run_args: vec![],
+      post_run_executable: None,
+      post_run_args: vec![],
+      env: Some(HashMap::from([(
+        "OMP_NUM_THREADS".to_string(),
+        "4".to_string(),
+      )])),
+      num_threads: vec![4],
+      enclave_size: vec!["256M".to_string()],
+      storage_type: vec![StorageType::Encrypted],
+      custom_manifest_path: None,
+    };
+
+    let experiment_path = output_directory.path().join("experiment");
+    let storage_path = experiment_path.join("storage");
+    create_dir_all(&storage_path).unwrap();
+
+    let experiment_config = build_experiment(task.clone(), 4, &experiment_path, &storage_path);
+
     profiler
       .build_and_sign_enclave(
-        &PathBuf::from("/bin/ls"),
-        &output_directory.path().to_path_buf(),
-        &1,
-        "64M",
-        None,
+        &experiment_config,
+        4,
+        &task.enclave_size[0],
+        task.custom_manifest_path.clone(),
       )
       .unwrap();
+
+    let manifest_path = experiment_path.join(format!(
+      "{}.manifest.sgx",
+      task.executable.file_name().unwrap().to_str().unwrap()
+    ));
+    let signature_path = experiment_path.join(format!(
+      "{}.sig",
+      task.executable.file_name().unwrap().to_str().unwrap()
+    ));
+
+    assert!(manifest_path.exists(), "Manifest file should exist");
+    assert!(signature_path.exists(), "Signature file should exist");
   }
+
   #[test]
   fn example_configs() {
     let mut buf = String::new();
@@ -418,111 +382,45 @@ mod test {
       buf.clear();
     }
   }
-  #[test]
-  #[should_panic]
-  fn invalid_storage_type() {
-    toml::from_str::<Config>(
-      r#"
-            [globals]
-            sample_size = 3
-            output_directory = "/test"
-            [[tasks]]
-            executable = "/bin/ls"
-            enclave_size = ["64M", "128M"]
-            [[tasks]]
-            executable = "/bin/ls"
-            args = ["-l", "-a"]
-            storage_type = ["invalid_storage_type", "tmpfs"]
-            enclave_size = ["64M", "128M"]
-            "#,
-    )
-    .unwrap();
-  }
 
   #[test]
-  fn build_and_expand_args() {
+  fn build_experiment_success() {
     let output_directory = TempDir::new().unwrap().path().join("storage");
     let args = vec![
       String::from("{{ output_directory }}"),
       String::from("{{ num_threads }}"),
     ];
-    let args = Profiler::build_and_expand_args(
-      args,
-      vec![],
-      vec![],
-      1,
-      1024,
-      &StorageType::Untrusted,
-      &output_directory,
-      None,
-    )
-    .unwrap();
 
-    assert_eq!(args.0[0], output_directory.clone().to_str().unwrap());
-    assert_eq!(args.0[1], String::from("1"));
-
-    let args = vec![
-      String::from("{{ output_directory }}"),
-      String::from("{{ num_threads }}"),
-    ];
-
-    let gramine_metadata = GramineMetadata {
-      manifest_path: output_directory.join("app.manifest.sgx"),
-      encrypted_path: output_directory.join("encrypted_path"),
-      untrusted_path: output_directory.join("plaintext_path"),
-      tmpfs_path: output_directory.join("tmpfs_path"),
+    let task = Task {
+      executable: PathBuf::from("/path/to/executable"),
+      args: args.clone(),
+      pre_run_executable: None,
+      pre_run_args: vec![],
+      post_run_executable: None,
+      post_run_args: vec![],
+      env: None,
+      num_threads: vec![4],
+      enclave_size: vec!["256M".to_string()],
+      storage_type: vec![StorageType::Encrypted],
+      custom_manifest_path: None,
     };
-    let args = Profiler::build_and_expand_args(
-      args,
-      vec![],
-      vec![],
-      1,
-      1024,
-      &StorageType::Encrypted,
-      &output_directory,
-      Some(gramine_metadata.clone()),
-    )
-    .unwrap();
+
+    let experiment_config = build_experiment(task, 4, &output_directory, &output_directory);
 
     assert_eq!(
-      args.0[0],
-      gramine_metadata
-        .manifest_path
-        .to_str()
-        .unwrap()
-        .to_string()
-        .replacen(".manifest.sgx", "", 1)
+      experiment_config.program,
+      PathBuf::from("/path/to/executable")
     );
     assert_eq!(
-      args.0[1],
-      output_directory.join("encrypted_path").to_str().unwrap()
+      experiment_config.args,
+      vec![
+        output_directory.to_string_lossy().into_owned(),
+        "4".to_string()
+      ]
     );
-    assert_eq!(args.0[2], String::from("1"));
-  }
-
-  #[test]
-  fn default_storage_type() {
-    let config = toml::from_str::<Config>(
-      r#"
-            [globals]
-            sample_size = 3
-            output_directory = "/test"
-            [[tasks]]
-            executable = "/bin/ls"
-            storage_type = []
-            enclave_size = ["64M", "128M"]
-            [[tasks]]
-            executable = "/bin/ls"
-            args = ["-l", "-a"]
-            storage_type = ["tmpfs"] 
-            enclave_size = ["64M", "128M"]
-            "#,
-    )
-    .unwrap();
-
-    assert_eq!(config.tasks.len(), 2);
-    assert_eq!(config.tasks[0].storage_type.len(), 1);
-    assert_eq!(config.tasks[0].storage_type[0], StorageType::Untrusted);
-    assert_eq!(config.tasks[1].storage_type[0], StorageType::Tmpfs);
+    assert_eq!(experiment_config.output_path, output_directory);
+    assert!(experiment_config.pre_run.is_none());
+    assert!(experiment_config.post_run.is_none());
+    assert!(experiment_config.env.is_none());
   }
 }

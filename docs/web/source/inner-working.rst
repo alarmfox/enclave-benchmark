@@ -22,18 +22,27 @@ settings. For example, it looks like:
 .. code:: toml
 
   [globals]
-  sample_size = 4
-  enclave_size = ["256M", "512M"]
-  output_directory = "results"
-  num_threads = [1, 2, 8]
+  sample_size = 1
+  output_directory = "demo-result"
   extra_perf_events = ["cpu-clock"]
   debug = false
   deep_trace = true
 
   [[tasks]]
-  executable = "/usr/bin/make"
-  args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "app", "output={{ output_directory }}"]
-  storage_type = ["encrypted", "tmpfs", "untrusted"]
+  executable = "examples/nbody/build/nbody"
+  args = ["--bodies", "16", "--iterations", "4"]
+  enclave_size = ["1G"]
+  num_threads = [1, 2, 4]
+  env = { OMP_NUM_THREADS = "{{num_threads}}" }
+
+  [[tasks]]
+  executable = "/bin/dd"
+  args = ["if=/dev/random", "of={{ output_directory }}/a.random", "count=1000000"]
+  storage_type = ["encrypted", "untrusted"]
+  enclave_size = ["256M", "512M"]
+
+  post_run_executable = "rm"
+  post_run_args = ["-rf", "{{ output_directory }}/a.random"]
 
 The program will generate `len(<enclave_size>) x len(num_threads)` (2 x 3 = 6) 
 experiments. Each experiment will be executed `sample_size` times. For Gramine,
@@ -46,6 +55,8 @@ On each iteration, it will be populated with an element from `globals.num_thread
 (see the `make` task in the example above). `{{ output_directory }}` is replaced in each
 experiment with different paths from `storage_type` (non-Gramine applications always
 have a simple storage).
+
+Every run takes also an option `env` field which will be used to populate the process environment.
 
 If `deep_trace = true`, the application is executed one more time collecting extra tracing metrics.
 .. index:: eBPF
@@ -351,7 +362,6 @@ For each experiment, the application builds the following structure:
 
 .. code:: sh
 
-  <prog>-<threads>-<enclave-size>/
   ├── <prog>-<threads>-<enclave-size>-<storage>
   │   └── 1
   ├── <prog>.manifest.sgx

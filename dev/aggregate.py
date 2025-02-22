@@ -176,13 +176,12 @@ def process_experiment(task: str, thread: int, storage: Union[str, None] = None,
     None: This function does not return a value. It writes the processed data to CSV files in the specified output directory.
     """
     sgx_prefix = "sgx-" if sgx else ""
-    storage_suffix = f"-{storage}" if storage else "-untrusted"
+    storage_suffix = f"-{storage}" if storage else ""
     experiment_type = "gramine-sgx" if sgx else "no-gramine-sgx"
     
     experiment_dir = os.path.join(input_directory, 
                                   task, 
                                   experiment_type,
-                                  f"{task}-{thread}", 
                                   f"{task}-{thread}{storage_suffix}")
     
     result_directory = os.path.join(output_directory, f"{sgx_prefix}{task}-{thread}{storage_suffix}")
@@ -208,7 +207,7 @@ def process_experiment(task: str, thread: int, storage: Union[str, None] = None,
 first_prog = os.path.basename(tasks[0]["executable"])
 num_threads = tasks[0].get("num_threads", [1])
 
-first_exp = f"{first_prog}/no-gramine-sgx/{first_prog}-{num_threads[0]}/{first_prog}-{num_threads[0]}-untrusted/1"
+first_exp = f"{first_prog}/no-gramine-sgx/{first_prog}-{num_threads[0]}/1"
 energy_files = get_energy_files(os.path.join(input_directory, first_exp))
 
 print("Discovered following energy sample files", energy_files)

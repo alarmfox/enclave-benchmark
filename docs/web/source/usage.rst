@@ -8,35 +8,27 @@ Example files are stored in the `examples` directory. Below `examples/full.toml`
 .. code:: toml
 
   [globals]
-  sample_size = 3
-  output_directory = "/tmp/test"
+  sample_size = 1
+  output_directory = "demo-result"
   extra_perf_events = ["cpu-clock"]
-  energy_sample_interval = "250ms"
-  debug = true
+  debug = false
+  deep_trace = true
+
+  [[tasks]]
+  executable = "examples/nbody/build/nbody"
+  args = ["--bodies", "16", "--iterations", "4"]
+  enclave_size = ["1G"]
+  num_threads = [1, 2, 4]
+  env = { OMP_NUM_THREADS = "{{num_threads}}" }
 
   [[tasks]]
   executable = "/bin/dd"
-  args = ["if=/dev/zero", "of=/dev/null", "count=10000"]
-  enclave_size = ["64M", "128M"]
+  args = ["if=/dev/random", "of={{ output_directory }}/a.random", "count=1000000"]
+  storage_type = ["encrypted", "untrusted"]
+  enclave_size = ["256M", "512M"]
 
-  [[tasks]]
-  pre_run_executable = "/usr/bin/echo"
-  pre_run_args = ["Starting make"]
-  enclave_size = ["64M", "128M"]
-  num_threads = [1, 2]
-
-  executable = "/usr/bin/make"
-  args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "app", "output={{ output_directory }}"]
-
-  post_run_executable = "/usr/bin/make"
-  post_run_args = ["-C", "examples/basic-c-app", "clean", "output={{ output_directory }}"]
-
-  [[tasks]]
-  executable = "examples/simple-writer/writer"
-  args = ["{{ output_directory }}"]
-  storage_type = ["encrypted", "tmpfs", "untrusted"]
-  enclave_size = ["64M", "128M"]
-  num_threads = [1, 2]
+  post_run_executable = "rm"
+  post_run_args = ["-rf", "{{ output_directory }}/a.random"]
 
 
 The application needs to be run always with **root** privileges.
@@ -112,6 +104,10 @@ Optional Task Fields
 
 Some tasks include additional fields:
 
+- **env** (map)
+  Specifies environment variables for the target process. Values are also expanded as arguments.
+  Example: `env = { OMP_NUM_THREADS = "{{ num_threads }}"}`
+
 - **pre_run_executable** (string)  
   An executable to run before the main task.  
   Example: `"/usr/bin/echo"`.
@@ -137,11 +133,8 @@ Variable Expansion
 Some fields contain **placeholders** that are expanded dynamically for each experiment:
 
 - `{{ output_directory }}`  
-  Expands to the value of `output_directory` in `[globals]`.
+  Expands to the value of the directory mounted for relevant app storage. In Gramine applications, storage can be encrypted or untrusted.
 
 - `{{ num_threads }}`  
   Expands to each value in `num_threads` during benchmarking.
 
-- `{{ ram_size }}`  
-  Expands to each value in `enclave_size` during benchmarking. For non Gramine application, 
-  default will in `src/constants.rs`

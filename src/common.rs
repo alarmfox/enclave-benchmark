@@ -1,5 +1,5 @@
 use duration_str::deserialize_duration;
-use std::{fmt::Display, path::PathBuf, time::Duration};
+use std::{collections::HashMap, fmt::Display, path::PathBuf, time::Duration};
 
 use serde::Deserialize;
 
@@ -53,7 +53,8 @@ pub struct Task {
   #[serde(default)]
   pub args: Vec<String>,
 
-  pub num_threads: Option<Vec<usize>>,
+  #[serde(default = "default_num_threads")]
+  pub num_threads: Vec<usize>,
   pub enclave_size: Vec<String>,
 
   pub custom_manifest_path: Option<PathBuf>,
@@ -70,6 +71,12 @@ pub struct Task {
   pub post_run_executable: Option<PathBuf>,
   #[serde(default)]
   pub post_run_args: Vec<String>,
+
+  pub env: Option<HashMap<String, String>>,
+}
+
+pub fn default_num_threads() -> Vec<usize> {
+  vec![1]
 }
 
 /// StorageType defines the types of storage that can be used.
@@ -83,7 +90,6 @@ pub struct Task {
 #[serde(rename_all = "snake_case")]
 pub enum StorageType {
   Encrypted,
-  Tmpfs,
   Untrusted,
 }
 
@@ -91,7 +97,6 @@ impl Display for StorageType {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Encrypted => write!(f, "encrypted"),
-      Self::Tmpfs => write!(f, "tmpfs"),
       Self::Untrusted => write!(f, "untrusted"),
     }
   }
@@ -119,4 +124,14 @@ pub fn default_energy_sample_interval() -> Duration {
 }
 pub fn default_storage_type() -> Vec<StorageType> {
   vec![StorageType::Untrusted]
+}
+
+#[derive(Debug, Clone)]
+pub struct ExperimentConfig {
+  pub program: PathBuf,
+  pub args: Vec<String>,
+  pub pre_run: Option<(PathBuf, Vec<String>)>,
+  pub post_run: Option<(PathBuf, Vec<String>)>,
+  pub output_path: PathBuf,
+  pub env: Option<HashMap<String, String>>,
 }

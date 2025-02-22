@@ -26,7 +26,7 @@ num_threads = [1, 2]
 [[tasks]]
 executable = "examples/simple-writer/writer"
 args = ["{{ output_directory }}"]
-storage_type = ["encrypted", "tmpfs", "untrusted"]
+storage_type = ["encrypted", "untrusted"]
 
 enclave_size = ["64M", "128M"]
 num_threads = [1, 2]

@@ -119,7 +119,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod test {
-  use crate::Config;
+  use crate::{common::StorageType, Config};
 
   #[test]
   fn parse_config() {
@@ -137,7 +137,7 @@ mod test {
             [[tasks]]
             executable = "/bin/ls"
             args = ["-l", "-a"]
-            storage_type = ["encrypted", "tmpfs"] 
+            storage_type = ["encrypted"] 
             enclave_size = ["64M", "128M"]
             num_threads = [1]
             "#,
@@ -148,5 +148,51 @@ mod test {
     assert_eq!(3, config.globals.sample_size);
     let args = config.tasks[1].clone().args;
     assert_eq!(2, args.len());
+  }
+
+  #[test]
+  fn default_storage_type() {
+    let config = toml::from_str::<Config>(
+      r#"
+            [globals]
+            sample_size = 3
+            output_directory = "/test"
+            [[tasks]]
+            executable = "/bin/ls"
+            storage_type = []
+            enclave_size = ["64M", "128M"]
+            [[tasks]]
+            executable = "/bin/ls"
+            args = ["-l", "-a"]
+            storage_type = ["encrypted"] 
+            enclave_size = ["64M", "128M"]
+            "#,
+    )
+    .unwrap();
+
+    assert_eq!(config.tasks.len(), 2);
+    assert_eq!(config.tasks[0].storage_type.len(), 1);
+    assert_eq!(config.tasks[0].storage_type[0], StorageType::Untrusted);
+  }
+
+  #[test]
+  #[should_panic]
+  fn invalid_storage_type() {
+    toml::from_str::<Config>(
+      r#"
+            [globals]
+            sample_size = 3
+            output_directory = "/test"
+            [[tasks]]
+            executable = "/bin/ls"
+            enclave_size = ["64M", "128M"]
+            [[tasks]]
+            executable = "/bin/ls"
+            args = ["-l", "-a"]
+            storage_type = ["invalid_storage_type", "encrypted"]
+            enclave_size = ["64M", "128M"]
+            "#,
+    )
+    .unwrap();
   }
 }

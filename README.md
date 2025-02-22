@@ -80,146 +80,260 @@ sudo mount -t debugfs none /sys/kernel/debug
 ```
 
 #### Output directory
-The `test` directory will look like:
+The `demo-result` directory will look like:
 
 ```sh
-cd test
-tree .
-
+demo-result/
 ├── dd
 │   ├── gramine-sgx
-│   │   └── dd-1-256M
-│   │       ├── dd-1-256M-encrypted
-│   │       │   ├── 1
-│   │       │   │   ├── io.csv
-│   │       │   │   ├── package-0-core.csv
-│   │       │   │   ├── package-0.csv
-│   │       │   │   ├── package-0-dram.csv
-│   │       │   │   ├── package-0-uncore.csv
-│   │       │   │   ├── perf.csv
-│   │       │   │   ├── stderr
-│   │       │   │   └── stdout
-│   │       │   └── deep-trace
-│   │       │       ├── io.csv
-│   │       │       ├── package-0-core.csv
-│   │       │       ├── package-0.csv
-│   │       │       ├── package-0-dram.csv
-│   │       │       ├── package-0-uncore.csv
-│   │       │       ├── perf.csv
-│   │       │       ├── stderr
-│   │       │       ├── stdout
-│   │       │       └── trace.csv
-│   │       ├── dd-1-256M-tmpfs
-│   │       │   ├── 1
-│   │       │   │   ├── io.csv
-│   │       │   │   ├── package-0-core.csv
-│   │       │   │   ├── package-0.csv
-│   │       │   │   ├── package-0-dram.csv
-│   │       │   │   ├── package-0-uncore.csv
-│   │       │   │   ├── perf.csv
-│   │       │   │   ├── stderr
-│   │       │   │   └── stdout
-│   │       │   └── deep-trace
-│   │       │       ├── io.csv
-│   │       │       ├── package-0-core.csv
-│   │       │       ├── package-0.csv
-│   │       │       ├── package-0-dram.csv
-│   │       │       ├── package-0-uncore.csv
-│   │       │       ├── perf.csv
-│   │       │       ├── stderr
-│   │       │       ├── stdout
-│   │       │       └── trace.csv
-│   │       ├── dd-1-256M-untrusted
-│   │       │   ├── 1
-│   │       │   │   ├── io.csv
-│   │       │   │   ├── package-0-core.csv
-│   │       │   │   ├── package-0.csv
-│   │       │   │   ├── package-0-dram.csv
-│   │       │   │   ├── package-0-uncore.csv
-│   │       │   │   ├── perf.csv
-│   │       │   │   ├── stderr
-│   │       │   │   └── stdout
-│   │       │   └── deep-trace
-│   │       │       ├── io.csv
-│   │       │       ├── package-0-core.csv
-│   │       │       ├── package-0.csv
-│   │       │       ├── package-0-dram.csv
-│   │       │       ├── package-0-uncore.csv
-│   │       │       ├── perf.csv
-│   │       │       ├── stderr
-│   │       │       ├── stdout
-│   │       │       └── trace.csv
+│   │   ├── dd-1-256M-encrypted
+│   │   │   ├── 1
+│   │   │   │   ├── io.csv
+│   │   │   │   ├── package-0-core.csv
+│   │   │   │   ├── package-0.csv
+│   │   │   │   ├── perf.csv
+│   │   │   │   ├── stderr
+│   │   │   │   └── stdout
+│   │   │   ├── dd.manifest.sgx
+│   │   │   ├── dd.sig
+│   │   │   ├── deep-trace
+│   │   │   │   ├── io.csv
+│   │   │   │   ├── package-0-core.csv
+│   │   │   │   ├── package-0.csv
+│   │   │   │   ├── perf.csv
+│   │   │   │   ├── stderr
+│   │   │   │   ├── stdout
+│   │   │   │   └── trace.csv
+│   │   │   ├── encrypted
+│   │   │   │   └── a.random
+│   │   │   └── untrusted
+│   │   ├── dd-1-256M-untrusted
+│   │   │   ├── 1
+│   │   │   │   ├── io.csv
+│   │   │   │   ├── package-0-core.csv
+│   │   │   │   ├── package-0.csv
+│   │   │   │   ├── perf.csv
+│   │   │   │   ├── stderr
+│   │   │   │   └── stdout
+│   │   │   ├── dd.manifest.sgx
+│   │   │   ├── dd.sig
+│   │   │   ├── deep-trace
+│   │   │   │   ├── io.csv
+│   │   │   │   ├── package-0-core.csv
+│   │   │   │   ├── package-0.csv
+│   │   │   │   ├── perf.csv
+│   │   │   │   ├── stderr
+│   │   │   │   ├── stdout
+│   │   │   │   └── trace.csv
+│   │   │   ├── encrypted
+│   │   │   └── untrusted
+│   │   │       └── a.random
+│   │   ├── dd-1-512M-encrypted
+│   │   │   ├── 1
+│   │   │   │   ├── io.csv
+│   │   │   │   ├── package-0-core.csv
+│   │   │   │   ├── package-0.csv
+│   │   │   │   ├── perf.csv
+│   │   │   │   ├── stderr
+│   │   │   │   └── stdout
+│   │   │   ├── dd.manifest.sgx
+│   │   │   ├── dd.sig
+│   │   │   ├── deep-trace
+│   │   │   │   ├── io.csv
+│   │   │   │   ├── package-0-core.csv
+│   │   │   │   ├── package-0.csv
+│   │   │   │   ├── perf.csv
+│   │   │   │   ├── stderr
+│   │   │   │   ├── stdout
+│   │   │   │   └── trace.csv
+│   │   │   ├── encrypted
+│   │   │   │   └── a.random
+│   │   │   └── untrusted
+│   │   └── dd-1-512M-untrusted
+│   │       ├── 1
+│   │       │   ├── io.csv
+│   │       │   ├── package-0-core.csv
+│   │       │   ├── package-0.csv
+│   │       │   ├── perf.csv
+│   │       │   ├── stderr
+│   │       │   └── stdout
 │   │       ├── dd.manifest.sgx
 │   │       ├── dd.sig
+│   │       ├── deep-trace
+│   │       │   ├── io.csv
+│   │       │   ├── package-0-core.csv
+│   │       │   ├── package-0.csv
+│   │       │   ├── perf.csv
+│   │       │   ├── stderr
+│   │       │   ├── stdout
+│   │       │   └── trace.csv
 │   │       ├── encrypted
-│   │       │   └── a.zero
 │   │       └── untrusted
-│   │           └── a.zero
+│   │           └── a.random
 │   └── no-gramine-sgx
 │       └── dd-1
-│           ├── dd-1-untrusted
-│           │   ├── 1
-│           │   │   ├── io.csv
-│           │   │   ├── package-0-core.csv
-│           │   │   ├── package-0.csv
-│           │   │   ├── package-0-dram.csv
-│           │   │   ├── package-0-uncore.csv
-│           │   │   ├── perf.csv
-│           │   │   ├── stderr
-│           │   │   └── stdout
-│           │   └── deep-trace
-│           │       ├── io.csv
-│           │       ├── package-0-core.csv
-│           │       ├── package-0.csv
-│           │       ├── package-0-dram.csv
-│           │       ├── package-0-uncore.csv
-│           │       ├── perf.csv
-│           │       ├── stderr
-│           │       ├── stdout
-│           │       └── trace.csv
+│           ├── 1
+│           │   ├── io.csv
+│           │   ├── package-0-core.csv
+│           │   ├── package-0.csv
+│           │   ├── perf.csv
+│           │   ├── stderr
+│           │   └── stdout
+│           ├── deep-trace
+│           │   ├── io.csv
+│           │   ├── package-0-core.csv
+│           │   ├── package-0.csv
+│           │   ├── perf.csv
+│           │   ├── stderr
+│           │   ├── stdout
+│           │   └── trace.csv
 │           └── storage
-│               └── a.zero
+│               └── a.random
+├── nbody
+│   ├── gramine-sgx
+│   │   ├── nbody-1-1G-untrusted
+│   │   │   ├── 1
+│   │   │   │   ├── io.csv
+│   │   │   │   ├── package-0-core.csv
+│   │   │   │   ├── package-0.csv
+│   │   │   │   ├── perf.csv
+│   │   │   │   ├── stderr
+│   │   │   │   └── stdout
+│   │   │   ├── deep-trace
+│   │   │   │   ├── io.csv
+│   │   │   │   ├── package-0-core.csv
+│   │   │   │   ├── package-0.csv
+│   │   │   │   ├── perf.csv
+│   │   │   │   ├── stderr
+│   │   │   │   ├── stdout
+│   │   │   │   └── trace.csv
+│   │   │   ├── encrypted
+│   │   │   ├── nbody.manifest.sgx
+│   │   │   ├── nbody.sig
+│   │   │   └── untrusted
+│   │   ├── nbody-2-1G-untrusted
+│   │   │   ├── 1
+│   │   │   │   ├── io.csv
+│   │   │   │   ├── package-0-core.csv
+│   │   │   │   ├── package-0.csv
+│   │   │   │   ├── perf.csv
+│   │   │   │   ├── stderr
+│   │   │   │   └── stdout
+│   │   │   ├── deep-trace
+│   │   │   │   ├── io.csv
+│   │   │   │   ├── package-0-core.csv
+│   │   │   │   ├── package-0.csv
+│   │   │   │   ├── perf.csv
+│   │   │   │   ├── stderr
+│   │   │   │   ├── stdout
+│   │   │   │   └── trace.csv
+│   │   │   ├── encrypted
+│   │   │   ├── nbody.manifest.sgx
+│   │   │   ├── nbody.sig
+│   │   │   └── untrusted
+│   │   └── nbody-4-1G-untrusted
+│   │       ├── 1
+│   │       │   ├── io.csv
+│   │       │   ├── package-0-core.csv
+│   │       │   ├── package-0.csv
+│   │       │   ├── perf.csv
+│   │       │   ├── stderr
+│   │       │   └── stdout
+│   │       ├── deep-trace
+│   │       │   ├── io.csv
+│   │       │   ├── package-0-core.csv
+│   │       │   ├── package-0.csv
+│   │       │   ├── perf.csv
+│   │       │   ├── stderr
+│   │       │   ├── stdout
+│   │       │   └── trace.csv
+│   │       ├── encrypted
+│   │       ├── nbody.manifest.sgx
+│   │       ├── nbody.sig
+│   │       └── untrusted
+│   └── no-gramine-sgx
+│       ├── nbody-1
+│       │   ├── 1
+│       │   │   ├── io.csv
+│       │   │   ├── package-0-core.csv
+│       │   │   ├── package-0.csv
+│       │   │   ├── perf.csv
+│       │   │   ├── stderr
+│       │   │   └── stdout
+│       │   ├── deep-trace
+│       │   │   ├── io.csv
+│       │   │   ├── package-0-core.csv
+│       │   │   ├── package-0.csv
+│       │   │   ├── perf.csv
+│       │   │   ├── stderr
+│       │   │   ├── stdout
+│       │   │   └── trace.csv
+│       │   └── storage
+│       ├── nbody-2
+│       │   ├── 1
+│       │   │   ├── io.csv
+│       │   │   ├── package-0-core.csv
+│       │   │   ├── package-0.csv
+│       │   │   ├── perf.csv
+│       │   │   ├── stderr
+│       │   │   └── stdout
+│       │   ├── deep-trace
+│       │   │   ├── io.csv
+│       │   │   ├── package-0-core.csv
+│       │   │   ├── package-0.csv
+│       │   │   ├── perf.csv
+│       │   │   ├── stderr
+│       │   │   ├── stdout
+│       │   │   └── trace.csv
+│       │   └── storage
+│       └── nbody-4
+│           ├── 1
+│           │   ├── io.csv
+│           │   ├── package-0-core.csv
+│           │   ├── package-0.csv
+│           │   ├── perf.csv
+│           │   ├── stderr
+│           │   └── stdout
+│           ├── deep-trace
+│           │   ├── io.csv
+│           │   ├── package-0-core.csv
+│           │   ├── package-0.csv
+│           │   ├── perf.csv
+│           │   ├── stderr
+│           │   ├── stdout
+│           │   └── trace.csv
+│           └── storage
 └── private_key.pem
 ```
 
 ## Workload File
 The application takes a `toml` file as input and performs sequential benchmarks.
 
-Example files are stored in the `examples` directory. Below is `examples/full.toml`:
+Example files are stored in the `examples` directory. Below is `examples/demo.toml`:
 
 ```toml
 [globals]
-sample_size = 3
-output_directory = "/tmp/test"
+sample_size = 1
+output_directory = "demo-result"
 extra_perf_events = ["cpu-clock"]
-energy_sample_interval = "100ms"
-debug = true
+debug = false
 deep_trace = true
 
 [[tasks]]
-pre_run_executable = "/usr/bin/echo"
-pre_run_args = ["Before task"]
+executable = "examples/nbody/build/nbody"
+args = ["--bodies", "16", "--iterations", "4"]
+enclave_size = ["1G"]
+num_threads = [1, 2, 4]
+env = { OMP_NUM_THREADS = "{{num_threads}}" }
 
+[[tasks]]
 executable = "/bin/dd"
-args = ["if=/dev/zero", "of=/dev/null", "count=10000"]
-epc_size = ["64M", "128M"]
-num_threads = [2, 4]
+args = ["if=/dev/random", "of={{ output_directory }}/a.random", "count=1000000"]
+storage_type = ["encrypted", "untrusted"]
+enclave_size = ["256M", "512M"]
 
-post_run_executable = "/usr/bin/echo"
-post_run_args = ["After task"]
-
-[[tasks]]
-executable = "/usr/bin/make"
-args = ["-C", "examples/basic-c-app/", "-j", "{{ num_threads }}", "clean", "app"]
-epc_size = ["64M", "128M"]
-num_threads = [2, 4]
-
-[[tasks]]
-executable = "./examples/simple-writer/writer"
-args = ["{{ output_directory }}"]
-epc_size = ["64M", "128M"]
-num_threads = [2, 4]
-storage_type = ["encrypted", "tmpfs", "untrusted"]
+post_run_executable = "rm"
+post_run_args = ["-rf", "{{ output_directory }}/a.random"]
 ```
 
 A workload file has two sections:
@@ -264,10 +378,7 @@ The `toml` file is dynamic. For example, if an application executes with a diffe
 
 Each task can specify a `storage_type` array (see the `writer` task in the example above). Supported storage types are:
 * encrypted: Gramine encrypted directory with a hardcoded key;
-* tmpfs: an in-memory filesystem similar to tmpfs, which is encrypted according to Gramine;
 * untrusted: simple storage with no integrity check and no encryption;
-
-Tasks may also access to `{{ ram_size }}` variable populated with `src/constants.rs:DEFAULT_RAM_SIZE` for non Gramine applications and with a value from `task.enclave_size`.
 
 ## Analyzing results
 ### Preprocessing for Data Aggregation
@@ -300,31 +411,59 @@ python dev/aggregate.py <path/to/toml> <path/to/output_directory>
 
 For example, running the following commands produces:
 ```sh
-python dev/aggregate.py examples/demo.toml /tmp/demo-processed
-tree /tmp/demo-processed/
+python dev/aggregate.py examples/demo.toml aggregated
+tree aggregated
 
-/tmp/demo-processed/
-├── bonnie++-1-untrusted
+aggregated/
+├── dd-1
+│   ├── deep-trace
+│   │   ├── io.csv
+│   │   ├── package-0-core.csv
+│   │   ├── package-0.csv
+│   │   ├── perf.csv
+│   │   ├── stderr
+│   │   ├── stdout
+│   │   └── trace.csv
+│   ├── io.csv
 │   ├── package-0-core.csv
 │   ├── package-0.csv
 │   └── perf.csv
-├── bonnie++-2-untrusted
+├── nbody-1
+│   ├── deep-trace
+│   │   ├── io.csv
+│   │   ├── package-0-core.csv
+│   │   ├── package-0.csv
+│   │   ├── perf.csv
+│   │   ├── stderr
+│   │   ├── stdout
+│   │   └── trace.csv
+│   ├── io.csv
 │   ├── package-0-core.csv
 │   ├── package-0.csv
 │   └── perf.csv
-├── bonnie++-4-untrusted
+├── nbody-2
+│   ├── deep-trace
+│   │   ├── io.csv
+│   │   ├── package-0-core.csv
+│   │   ├── package-0.csv
+│   │   ├── perf.csv
+│   │   ├── stderr
+│   │   ├── stdout
+│   │   └── trace.csv
+│   ├── io.csv
 │   ├── package-0-core.csv
 │   ├── package-0.csv
 │   └── perf.csv
-├── launch_nbody.sh-1-untrusted
-│   ├── package-0-core.csv
-│   ├── package-0.csv
-│   └── perf.csv
-├── launch_nbody.sh-2-untrusted
-│   ├── package-0-core.csv
-│   ├── package-0.csv
-│   └── perf.csv
-└── launch_nbody.sh-4-untrusted
+└── nbody-4
+    ├── deep-trace
+    │   ├── io.csv
+    │   ├── package-0-core.csv
+    │   ├── package-0.csv
+    │   ├── perf.csv
+    │   ├── stderr
+    │   ├── stdout
+    │   └── trace.csv
+    ├── io.csv
     ├── package-0-core.csv
     ├── package-0.csv
     └── perf.csv

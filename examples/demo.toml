@@ -1,5 +1,5 @@
 [globals]
-sample_size = 2
+sample_size = 1
 output_directory = "demo-result"
 extra_perf_events = ["cpu-clock"]
 debug = false
@@ -12,9 +12,10 @@ deep_trace = true
 # bodies is multiplied by 1024
 [[tasks]]
 executable = "examples/nbody/build/nbody"
-args = ["--bodies", "96", "--iterations", "8"]
+args = ["--bodies", "16", "--iterations", "4"]
 enclave_size = ["1G"]
 num_threads = [1, 2, 4]
+env = { OMP_NUM_THREADS = "{{num_threads}}" }
 
 # i/o bound benchmark
 # bonnie++ creates threads. Needs to pass at least 4 threads

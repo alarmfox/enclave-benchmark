@@ -8,5 +8,5 @@ deep_trace = false
 [[tasks]]
 executable = "/bin/dd"
 args = ["if=/dev/zero", "of={{ output_directory }}/a.zero", "count=100000"]
-storage_type = ["encrypted", "tmpfs", "untrusted"]
+storage_type = ["encrypted", "untrusted"]
 enclave_size = ["256M"]

@@ -28,6 +28,7 @@ use utils::{
 };
 
 use crate::{
+  common::ExperimentConfig,
   constants::DEFAULT_PERF_EVENTS,
   stats::{DeepTraceEvent, DiskStats, EnergySample, LowLevelSgxCounters, Partition, SGXStats},
   tracer::{
@@ -122,9 +123,9 @@ impl DefaultCollector {
     self: Arc<Self>,
     program: &PathBuf,
     args: &[String],
+    env: Option<HashMap<String, String>>,
     experiment_directory: &Path,
     deep_trace: bool,
-    threads: usize,
   ) -> Result<(), std::io::Error> {
     let is_sgx = program.as_os_str() == "gramine-sgx";
 
@@ -133,14 +134,16 @@ impl DefaultCollector {
       return Ok(());
     }
 
-    let cmd = Command::new(program)
-      .args(args)
-      .env("OMP_NUM_THREADS", threads.to_string())
-      .stdout(Stdio::piped())
-      .stderr(Stdio::piped())
-      .spawn();
+    let mut cmd = Command::new(program);
+    let cmd = cmd.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
 
-    match cmd {
+    if let Some(env) = env {
+      cmd.envs(env);
+    }
+
+    let child = cmd.spawn();
+
+    match child {
       Ok(child) => {
         let metrics = self.collect_metrics(child, is_sgx, deep_trace);
 
@@ -160,20 +163,22 @@ impl DefaultCollector {
   #[tracing::instrument(level = "trace", skip(self), err)]
   pub fn attach(
     self: Arc<Self>,
-    program: PathBuf,
-    args: Vec<String>,
-    pre_run: Option<(PathBuf, Vec<String>)>,
-    post_run: Option<(PathBuf, Vec<String>)>,
-    threads: usize,
-    output_directory: &Path,
+    ExperimentConfig {
+      output_path,
+      pre_run,
+      program,
+      args,
+      post_run,
+      env,
+    }: ExperimentConfig,
   ) -> Result<(), Box<dyn std::error::Error>> {
     let me = self.clone();
     for n in 1..me.clone().sample_size + 1 {
       if self.stop.clone().load(Ordering::Relaxed) {
         break;
       }
-      let experiment_directory = output_directory.join(PathBuf::from(n.to_string()));
-      create_dir_all(&experiment_directory)?;
+      let experiment_path = output_path.join(PathBuf::from(n.to_string()));
+      create_dir_all(&experiment_path)?;
 
       let span = tracing::span!(tracing::Level::TRACE, "iteration", iteration = n);
       let _enter = span.enter();
@@ -185,9 +190,9 @@ impl DefaultCollector {
       me.clone().run_experiment(
         &program,
         &args,
-        experiment_directory.as_path(),
+        env.clone(),
+        experiment_path.as_path(),
         false,
-        threads,
       )?;
 
       if let Some((cmd, args)) = &post_run {
@@ -199,15 +204,10 @@ impl DefaultCollector {
       let span = tracing::span!(tracing::Level::TRACE, "deep_trace");
       let _enter = span.enter();
       trace!("entering deep trace");
-      let experiment_directory = output_directory.join(PathBuf::from("deep-trace"));
-      create_dir_all(&experiment_directory)?;
-      me.clone().run_experiment(
-        &program,
-        &args,
-        experiment_directory.as_path(),
-        true,
-        threads,
-      )?;
+      let experiment_path = output_path.join(PathBuf::from("deep-trace"));
+      create_dir_all(&experiment_path)?;
+      me.clone()
+        .run_experiment(&program, &args, env, experiment_path.as_path(), true)?;
 
       trace!("deep trace finished");
     }
@@ -752,6 +752,8 @@ mod test {
 
   use tempfile::TempDir;
 
+  use crate::common::ExperimentConfig;
+
   use super::DefaultCollector;
 
   #[test]
@@ -760,17 +762,15 @@ mod test {
     let sample_size = 1;
     let collector = DefaultCollector::new(sample_size, false, Duration::from_micros(500), None);
     let collector = Arc::new(collector);
-    collector
-      .clone()
-      .attach(
-        PathBuf::from("/bin/sleep"),
-        vec!["1".to_string()],
-        None,
-        None,
-        1,
-        output_directory.path(),
-      )
-      .unwrap();
+    let experiment_config = ExperimentConfig {
+      program: PathBuf::from("/bin/sleep"),
+      args: vec!["1".to_string()],
+      pre_run: None,
+      post_run: None,
+      output_path: output_directory.path().to_path_buf(),
+      env: None,
+    };
+    collector.clone().attach(experiment_config).unwrap();
 
     for i in 1..sample_size + 1 {
       let iter_directory = output_directory.path().join(i.to_string());

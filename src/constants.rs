@@ -1,6 +1,3 @@
-/// Default RAM to be used for non gramine applications
-pub const DEFAULT_RAM_SIZE: usize = 4096;
-
 /// The Gramine manifest configuration for an enclave application.
 ///
 /// This manifest defines various settings and parameters for running an application
@@ -68,16 +65,19 @@ pub const MANIFEST: &str = r#"
 libos.entrypoint = "{{ executable }}"
 loader.log_level = "{{ debug }}"
 
-loader.env.OMP_NUM_THREADS = "{{ num_threads }}"
 loader.env.LD_LIBRARY_PATH = "/lib:{{ arch_libdir }}:/usr/lib"
 loader.insecure__use_cmdline_argv = true
+
+{% for key, val in env.items() %}
+    loader.env.{{ key }} = "{{ val }}"
+{% endfor %}
 
 fs.mounts = [
   { path = "/lib", uri = "file:{{ gramine.runtimedir() }}" },
   { path = "/usr/lib", uri = "file:/usr/lib" },
   { path = "{{ arch_libdir }}", uri = "file:{{ arch_libdir }}" },
   { path = "{{ executable }}", uri = "file:{{ executable }}" },
-  { type = "tmpfs", path = "{{ tmpfs_path }}" },
+  { type = "tmpfs", path = "/tmp/" },
   { type = "encrypted", path = "/encrypted/", uri = "file:{{ encrypted_path }}/", key_name = "default" },
   { path = "/untrusted/", uri = "file:{{ untrusted_path }}/" },
   { path = "/etc/passwd", uri = "file:/etc/passwd" }
@@ -120,33 +120,17 @@ pub const TRACE_CSV_HEADER: &str = "timestamp (ns),event";
 ///
 /// # Events
 ///
-/// - `user_time`: Time spent in user mode.
-/// - `system_time`: Time spent in system mode.
-/// - `duration_time`: Total duration of the event.
-/// - `cycles`: Total CPU cycles.
-/// - `instructions`: Number of instructions executed.
+/// - `branch-misses`: Number of branch misses.
 /// - `cache-misses`: Number of cache misses.
-/// - `L1-dcache-loads`: L1 data cache loads.
-/// - `L1-dcache-load-misses`: L1 data cache load misses.
-/// - `L1-dcache-prefetches`: L1 data cache prefetches.
-/// - `L1-icache-loads`: L1 instruction cache loads.
-/// - `L1-icache-load-misses`: L1 instruction cache load misses.
-/// - `dTLB-loads`: Data TLB loads.
-/// - `dTLB-load-misses`: Data TLB load misses.
-/// - `iTLB-loads`: Instruction TLB loads.
-/// - `iTLB-load-misses`: Instruction TLB load misses.
-/// - `branch-loads`: Branch loads.
-/// - `branch-load-misses`: Branch load misses.
-/// - `branch-instructions`: Branch instructions executed.
-/// - `branch-misses`: Branch misses.
-/// - `cache-references`: Cache references.
 /// - `cpu-cycles`: CPU cycles.
+/// - `duration_time`: Total duration of the event.
+/// - `instructions`: Number of instructions executed.
 /// - `stalled-cycles-frontend`: Cycles where the frontend is stalled.
-/// - `page-faults`: Number of page faults.
-pub const DEFAULT_PERF_EVENTS: [&str; 9] = [
+/// - `system_time`: Time spent in system mode.
+/// - `user_time`: Time spent in user mode.
+pub const DEFAULT_PERF_EVENTS: [&str; 8] = [
   "branch-misses",
   "cache-misses",
-  "cpu-cycles",
   "cpu-cycles",
   "duration_time",
   "instructions",
