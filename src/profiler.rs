@@ -218,15 +218,15 @@ impl Profiler {
           .collect::<Result<Vec<_>, _>>()?;
 
           let correct_storage_path = match storage_type {
-            StorageType::Encrypted => &paths[0],
-            StorageType::Untrusted => &paths[1],
+            StorageType::Encrypted => PathBuf::from("/encrypted/"),
+            StorageType::Untrusted => PathBuf::from("/untrusted/"),
           };
 
           let mut experiment_config = build_experiment(
             task.clone(),
             threads,
             &experiment_path,
-            correct_storage_path,
+            &correct_storage_path,
           );
 
           self.build_and_sign_enclave(
