@@ -5,8 +5,7 @@ use serde::Deserialize;
 use std::{
   env,
   fmt::Debug,
-  fs::{remove_dir_all, File},
-  io::Read,
+  fs::{self, remove_dir_all},
   path::PathBuf,
   sync::{
     atomic::{AtomicBool, Ordering},
@@ -76,13 +75,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   if env::var_os("EB_SKIP_SGX").is_some_and(|v| v == "1") {
     warn!("EB_SKIP_SGX is set; skipping SGX execution");
   }
-  let mut config = String::new();
-  let n = File::open(cli.config)?.read_to_string(&mut config)?;
-  let config = toml::from_str::<Config>(&config[..n])?;
+  let config = fs::read_to_string(cli.config)?;
+  let config = toml::from_str::<Config>(&config)?;
 
   if cli.force {
     warn!("force specified; deleting previous results directory...");
-    match remove_dir_all(config.globals.output_directory.clone()) {
+    match remove_dir_all(&config.globals.output_directory) {
       Err(err) if err.kind() == std::io::ErrorKind::NotFound => (),
       v => v?,
     }
