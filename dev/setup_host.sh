@@ -22,7 +22,7 @@ echo "Running the script as $USER_NAME"
 apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install build-essential clang \
   clang llvm-dev python3-dev libbpf-dev git clang autoconf bison gawk meson nasm \
   pkg-config python3 python3-click python3-jinja2 python3-pyelftools python3-tomli \
-  python3-tomli-w python3-voluptuous wget cmake libprotobuf-c-dev protobuf-c-compiler \
+  python3-tomli-w python3-voluptuous wget cmake libprotobuf-c-dev protobuf-c-compiler sysbench \
   protobuf-compiler python3-cryptography python3-pip python3-protobuf curl linux-tools-`uname -r`
 
 # install intel sgx core libraries
