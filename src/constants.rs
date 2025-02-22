@@ -10,13 +10,13 @@
 ///
 /// - `{{ debug }}`: The log level for the loader, which determines the verbosity of logging output.
 ///
+/// - `{{ env }}`: Environment variables for the application.
+///
 /// - `{{ num_threads }}`: The number of OpenMP threads to be used by the application, set via the `OMP_NUM_THREADS` environment variable.
 ///
 /// - `{{ gramine.runtimedir() }}`: The directory path where Gramine runtime libraries are located, used for mounting the `/lib` path.
 ///
 /// - `{{ arch_libdir }}`: The architecture-specific library directory, used for mounting and trusted file paths.
-///
-/// - `{{ tmpfs_path }}`: The path for a temporary filesystem (tmpfs) mount within the enclave.
 ///
 /// - `{{ encrypted_path }}`: The path to the directory containing encrypted files, mounted at `/encrypted/` with a specified key.
 ///
@@ -33,8 +33,6 @@
 /// - `libos.entrypoint`: Specifies the entry point executable for the application.
 ///
 /// - `loader.log_level`: Sets the logging level for the Gramine loader.
-///
-/// - `loader.env.OMP_NUM_THREADS`: Configures the number of OpenMP threads via an environment variable.
 ///
 /// - `loader.env.LD_LIBRARY_PATH`: Sets the library path for dynamic linking within the enclave.
 ///
