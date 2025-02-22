@@ -20,7 +20,7 @@ rsa = "0.9.7"
 tempfile = "3.15.0"
 toml = "0.8.19"
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber =  {version = "0.3", features = ["env-filter"] }
 
 [profile.dev.package.num-bigint-dig]
 opt-level = 3

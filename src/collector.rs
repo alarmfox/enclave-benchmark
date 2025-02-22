@@ -203,18 +203,14 @@ impl DefaultCollector {
     if self.deep_trace && !self.stop.clone().load(Ordering::Relaxed) {
       let span = tracing::span!(tracing::Level::TRACE, "deep_trace");
       let _enter = span.enter();
-      trace!("entering deep trace");
       let experiment_path = output_path.join(PathBuf::from("deep-trace"));
       create_dir_all(&experiment_path)?;
       me.clone()
         .run_experiment(&program, &args, env, experiment_path.as_path(), true)?;
-
-      trace!("deep trace finished");
     }
     Ok(())
   }
 
-  #[tracing::instrument(level = "trace", skip(self, child))]
   fn collect_metrics(self: Arc<Self>, child: Child, is_sgx: bool, deep_trace: bool) -> Metrics {
     let pid = child.id();
     let stop = Arc::new(AtomicBool::new(false));
@@ -243,10 +239,10 @@ impl DefaultCollector {
     };
 
     let (stdout, stderr) = wait_child_handle.join().unwrap();
-    trace!("target process joined!");
+    trace!("target process joined");
 
     let trace_result = tracing_handle.join().unwrap();
-    trace!("trace thread joined!");
+    trace!("trace thread joined");
 
     let energy_stats = energy_handle.join().unwrap();
     trace!("energy thread joined");

@@ -65,11 +65,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     2 => Level::DEBUG,
     _ => Level::TRACE,
   };
+  tracing_subscriber::fmt()
+    .with_env_filter(
+      tracing_subscriber::filter::EnvFilter::from_default_env()
+        .add_directive("handlebars=error".parse()?)
+        .add_directive(format!("{}={}", module_path!(), log_level).parse()?),
+    )
+    .init();
+
   if env::var_os("EB_SKIP_SGX").is_some_and(|v| v == "1") {
     warn!("EB_SKIP_SGX is set; skipping SGX execution");
   }
   let mut config = String::new();
-  tracing_subscriber::fmt().with_max_level(log_level).init();
   let n = File::open(cli.config)?.read_to_string(&mut config)?;
   let config = toml::from_str::<Config>(&config[..n])?;
 

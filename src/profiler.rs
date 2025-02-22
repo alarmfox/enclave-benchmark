@@ -1,7 +1,6 @@
 use std::{
   collections::HashMap,
-  fs::{create_dir, create_dir_all, File},
-  io::Read,
+  fs::{self, create_dir, create_dir_all},
   path::{Path, PathBuf},
   sync::Arc,
 };
@@ -15,7 +14,7 @@ use rsa::{
   pkcs1::{self, EncodeRsaPrivateKey},
   BigUint, RsaPrivateKey,
 };
-use tracing::trace;
+use tracing::{span, Level};
 
 use crate::{
   collector::DefaultCollector,
@@ -33,8 +32,6 @@ use crate::{
 ///
 /// * `private_key_path` - The file path where the RSA private key is stored.
 /// * `output_directory` - The directory where profiling results and other output files are stored.
-/// * `num_threads` - A vector specifying the number of threads to be used for each profiling task.
-/// * `enclave_size` - A vector specifying the sizes of the enclaves to be used for profiling.
 /// * `collector` - An `Arc` wrapped `DefaultCollector` used for collecting profiling data.
 /// * `debug` - A boolean flag indicating whether debugging is enabled.
 ///
@@ -158,11 +155,9 @@ impl Profiler {
       )?;
       let manifest: Bound<'_, PyAny> = match custom_manifest_path {
         Some(p) => {
-          let mut f = File::open(p)?;
-          let mut buf = String::new();
-          let n = f.read_to_string(&mut buf)?;
+          let f = fs::read_to_string(p)?;
           manifest
-            .call_method1("from_template", (buf[..n].trim(), args))?
+            .call_method1("from_template", (f, args))?
             .extract()?
         }
         None => manifest
@@ -205,17 +200,25 @@ impl Profiler {
     let program_name = program_name.file_name().unwrap().to_str().unwrap();
     let task_path = self.output_directory.join(program_name);
 
-    trace!("Running sgx configuration");
     for threads in task.num_threads.clone() {
       for enclave_size in &task.enclave_size {
         for storage_type in &task.storage_type {
+          let span = span!(
+            Level::TRACE,
+            "sgx_execution",
+            program = program_name,
+            threads = threads,
+            enclave_size = enclave_size,
+            storage_type = storage_type.to_string()
+          );
+          let _enter = span.enter();
           let experiment_path = task_path.join(format!(
             "gramine-sgx/{}-{}-{}-{}",
             program_name, threads, enclave_size, storage_type
           ));
           let storage_path = experiment_path.join(storage_type.to_string());
 
-          let experiment_config =
+          let mut experiment_config =
             build_experiment(task.clone(), threads, &experiment_path, &storage_path);
 
           self.build_and_sign_enclave(
@@ -224,17 +227,34 @@ impl Profiler {
             enclave_size,
             task.custom_manifest_path.clone(),
           )?;
+          // since this is a Gramine enclave
+          // we need to run the application like gramine-sgx <path-to-manifest>.manifest.sgx <args>
+          // for some reasons gramine expects the application name without the .manifest.sgx
+          // extension
+          let manifest_path = experiment_path
+            .join(program_name)
+            .to_str()
+            .unwrap()
+            .to_string();
+          experiment_config.args.insert(0, manifest_path);
+          experiment_config.program = PathBuf::from("gramine-sgx");
           self.collector.clone().attach(experiment_config)?;
         }
       }
     }
 
-    trace!("Running non sgx configuration");
     for threads in task.num_threads.clone() {
+      let span = span!(
+        Level::TRACE,
+        "non_sgx_execution",
+        program = program_name,
+        threads = threads,
+      );
+      let _enter = span.enter();
       let experiment_path = task_path.join(format!("no-gramine-sgx/{}-{}", program_name, threads));
       let storage_path = experiment_path.join("storage");
       // ensure storage exists
-      create_dir_all(&storage_path).unwrap();
+      create_dir_all(&storage_path)?;
       let experiment_config =
         build_experiment(task.clone(), threads, &experiment_path, &storage_path);
       self.collector.clone().attach(experiment_config)?;
