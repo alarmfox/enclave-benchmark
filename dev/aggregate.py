@@ -37,14 +37,22 @@ def process_perf_samples(files: List[str]) -> pd.DataFrame:
                   - 'perc_runtime_mean': The mean of the 'perc_runtime' values for each event.
     """
 
-    df = pd.concat([pd.read_csv(f, names=["counter", 
+    df = pd.concat([pd.read_csv(f, header = None,  names=["counter", 
                                           "unit_counter", 
                                           "event", 
                                           "runtime_counter", 
                                           "perc_runtime", 
                                           "metric", 
-                                          "unit_metric"]) 
-                    for f in files])
+                                          "unit_metric"], 
+                                on_bad_lines="skip") 
+                    for f in files], )
+    
+    # filter rows where counter vaorulue is <not supported>
+    df = df[pd.to_numeric(df["counter"], errors="coerce").notnull()]
+    df["counter"] = df["counter"].astype(int)
+    df["unit_counter"] = df["unit_counter"].fillna("#")
+    df["unit_metric"] = df["unit_metric"].fillna(0)
+    df["metric"] = df["metric"].fillna(0)
 
     df_new = df.groupby("event").agg(
         counter_mean=("counter", "mean"),
@@ -140,7 +148,7 @@ def get_energy_files(samples_directory: str) -> List[str]:
 
 
 # Function to process experiments
-def process_experiment(config: dict, task: str, thread: int, storage: Union[str, None] = None, sgx: bool = False)-> None:
+def process_experiment(config: dict, task: str, thread: int, size: str = None, storage: Union[str, None] = None, sgx: bool = False)-> None:
     """
     Processes experimental data for a given task and thread configuration, optionally considering storage type and SGX usage.
 
@@ -165,15 +173,16 @@ def process_experiment(config: dict, task: str, thread: int, storage: Union[str,
     energy_files = config["globals"]["energy_files"]
 
     sgx_prefix = "sgx-" if sgx else ""
-    storage_suffix = f"-{storage}" if storage else ""
+    storage_suffix = f"-{storage}" if storage and sgx else ""
     experiment_type = "gramine-sgx" if sgx else "no-gramine-sgx"
+    size_suffix = f"-{size}" if sgx and size is not None else ""
     
     experiment_dir = os.path.join(input_directory, 
                                   task, 
                                   experiment_type,
-                                  f"{task}-{thread}{storage_suffix}")
+                                  f"{task}-{thread}{size_suffix}{storage_suffix}")
     
-    result_directory = os.path.join(output_directory, f"{sgx_prefix}{task}-{thread}{storage_suffix}")
+    result_directory = os.path.join(output_directory, f"{sgx_prefix}{task}-{thread}{size_suffix}{storage_suffix}")
     os.makedirs(result_directory, exist_ok=True)
 
     perf_files = [os.path.join(experiment_dir, f"{i}/perf.csv") for i in range(1, n+1)]
@@ -230,9 +239,10 @@ def aggregate(input_file: str, output_directory: str) -> None:
     for task in tasks:
         prog = os.path.basename(task["executable"])
         print("Processing", task, end="... ")
-        for thread in task,get("num_threads", [1]):
+        for thread in task.get("num_threads", [1]):
             for storage in task.get("storage_type", ["untrusted"]):
-                process_experiment(config, prog, thread, storage, sgx=True)
+                for size in task["enclave_size"]:
+                    process_experiment(config, prog, thread, size, storage, sgx=True)
         print("done")
 
 if __name__ == "__main__":
