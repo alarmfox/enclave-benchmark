@@ -11,11 +11,11 @@ deep_trace = true
 # populated in the default manifest
 # bodies is multiplied by 1024
 [[tasks]]
-executable = "examples/nbody/build/nbody"
-args = ["--bodies", "16", "--iterations", "4"]
+executable = "/usr/bin/sysbench"
+args = ["--threads={{ num_threads }}", "cpu", "run"]
 enclave_size = ["1G"]
 num_threads = [1, 2, 4]
-env = { OMP_NUM_THREADS = "{{num_threads}}" }
+env = { OMP_NUM_THREADS = "{{ num_threads }}" }
 
 # i/o bound benchmark
 # bonnie++ creates threads. Needs to pass at least 4 threads
