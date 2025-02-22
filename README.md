@@ -382,7 +382,3 @@ head  /tmp/demo-processed/launch_nbody.sh-1-untrusted/package-0.csv
 7,100047796,1000477967.0,19856279871.0
 8,100049695,1000496953.0,22029620099.0
 ```
-
-## External code
-This code comes with an nbody implementation for CPU bound benchmark. The code is taken from 
-[here](https://github.com/tycho/nbody).
