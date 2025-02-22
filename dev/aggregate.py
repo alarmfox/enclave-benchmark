@@ -9,25 +9,7 @@ import numpy as np
 
 from typing import List, Union
 
-if len(sys.argv) != 3:
-    print("Usage: python analysis/pre-process.py </path/to/toml> </path/to/output_directory>")
-    sys.exit(1)
-
 SKIP_SGX = os.environ.get("EB_SKIP_SGX", False)
-
-input_file, output_directory = sys.argv[1], sys.argv[2]
-print("Reading from", input_file)
-with open(input_file, 'r') as f:
-    config = toml.load(f)
-
-os.makedirs(output_directory, exist_ok=True)
-
-print("Created output directory", output_directory)
-
-n = config["globals"]["sample_size"]
-input_directory = config["globals"]["output_directory"]
-deep_trace = config["globals"]["deep_trace"]
-tasks = config["tasks"]
 
 # Calculate the avg and std-dev for perf perf samples
 def process_perf_samples(files: List[str]) -> pd.DataFrame:
@@ -158,7 +140,7 @@ def get_energy_files(samples_directory: str) -> List[str]:
 
 
 # Function to process experiments
-def process_experiment(task: str, thread: int, storage: Union[str, None] = None, sgx: bool = False)-> None:
+def process_experiment(config: dict, task: str, thread: int, storage: Union[str, None] = None, sgx: bool = False)-> None:
     """
     Processes experimental data for a given task and thread configuration, optionally considering storage type and SGX usage.
 
@@ -175,6 +157,13 @@ def process_experiment(task: str, thread: int, storage: Union[str, None] = None,
     Returns:
     None: This function does not return a value. It writes the processed data to CSV files in the specified output directory.
     """
+
+    n = config["globals"]["sample_size"]
+    input_directory = config["globals"]["output_directory"]
+    deep_trace = config["globals"]["deep_trace"]
+    output_directory = config["globals"]["aggregated_directory"]
+    energy_files = config["globals"]["energy_files"]
+
     sgx_prefix = "sgx-" if sgx else ""
     storage_suffix = f"-{storage}" if storage else ""
     experiment_type = "gramine-sgx" if sgx else "no-gramine-sgx"
@@ -204,30 +193,51 @@ def process_experiment(task: str, thread: int, storage: Union[str, None] = None,
         deep_trace_directory = os.path.join(experiment_dir, "deep-trace")
         shutil.copytree(deep_trace_directory, os.path.join(result_directory, "deep-trace"))
 
-first_prog = os.path.basename(tasks[0]["executable"])
-num_threads = tasks[0].get("num_threads", [1])
 
-first_exp = f"{first_prog}/no-gramine-sgx/{first_prog}-{num_threads[0]}/1"
-energy_files = get_energy_files(os.path.join(input_directory, first_exp))
+def aggregate(input_file: str, output_directory: str) -> None:
+    print("Reading from", input_file)
+    config = toml.load(input_file)
+    config["globals"]["aggregated_directory"] = output_directory
 
-print("Discovered following energy sample files", energy_files)
-# Process non-gramine SGX tasks
-for task in tasks:
-    prog = os.path.basename(task["executable"])
-    print("Processing", task, end="... ")
-    for thread in task.get("num_threads", [1]):
-        process_experiment(prog, thread)
-    print("done")
+    input_directory = config["globals"]["output_directory"]
+    os.makedirs(output_directory, exist_ok=True)
 
-if SKIP_SGX:
-    print("Skipped SGX parsing")
-    sys.exit(0)
+    print("Created output directory", output_directory)
 
-# Process gramine SGX tasks
-for task in tasks:
-    prog = os.path.basename(task["executable"])
-    print("Processing", task, end="... ")
-    for thread in task,get("num_threads", [1]):
-        for storage in task.get("storage_type", ["untrusted"]):
-            process_experiment(prog, thread, storage, sgx=True)
-    print("done")
+    tasks = config["tasks"]
+
+    first_prog = os.path.basename(tasks[0]["executable"])
+    num_threads = tasks[0].get("num_threads", [1])
+
+    first_exp = f"{first_prog}/no-gramine-sgx/{first_prog}-{num_threads[0]}/1"
+    energy_files = get_energy_files(os.path.join(input_directory, first_exp))
+    config["globals"]["energy_files"] = energy_files
+
+    print("Discovered following energy sample files", energy_files)
+    # Process non-gramine SGX tasks
+    for task in tasks:
+        prog = os.path.basename(task["executable"])
+        print("Processing", task, end="... ")
+        for thread in task.get("num_threads", [1]):
+            process_experiment(config, prog, thread)
+        print("done")
+
+    if SKIP_SGX:
+        print("Skipped SGX parsing")
+        sys.exit(0)
+
+    # Process gramine SGX tasks
+    for task in tasks:
+        prog = os.path.basename(task["executable"])
+        print("Processing", task, end="... ")
+        for thread in task,get("num_threads", [1]):
+            for storage in task.get("storage_type", ["untrusted"]):
+                process_experiment(config, prog, thread, storage, sgx=True)
+        print("done")
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print("Usage: python analysis/pre-process.py </path/to/toml> </path/to/output_directory>")
+        sys.exit(1)
+
+    aggregate(sys.argv[1], sys.argv[2])
