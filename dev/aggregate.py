@@ -11,7 +11,6 @@ from typing import List, Union
 
 SKIP_SGX = os.environ.get("EB_SKIP_SGX", False)
 
-# Calculate the avg and std-dev for perf perf samples
 def process_perf_samples(files: List[str]) -> pd.DataFrame:
     """
     Processes performance sample files to calculate the average and standard deviation of various metrics.
@@ -37,7 +36,7 @@ def process_perf_samples(files: List[str]) -> pd.DataFrame:
                   - 'perc_runtime_mean': The mean of the 'perc_runtime' values for each event.
     """
 
-    df = pd.concat([pd.read_csv(f, header = None,  names=["counter", 
+    df = pd.concat([pd.read_csv(f, index_col = False, header = None,  names=["counter", 
                                           "unit_counter", 
                                           "event", 
                                           "runtime_counter", 

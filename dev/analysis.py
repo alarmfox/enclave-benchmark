@@ -17,7 +17,7 @@ def _(__file__):
     print(project_root)
     os.chdir(project_root)
 
-    config = "examples/demo.toml"
+    config = "demo-result/config.toml"
     data = "aggregated"
 
     # load experiment params
@@ -45,14 +45,14 @@ def _(__file__):
 @app.cell
 def _(data, os, pd, plt, tasks):
     def _ ():
-        prog = os.path.basename(tasks[1]["executable"])
-    
-        for thread in tasks[0].get("num_threads", [1]):
-            file = os.path.join(data, f"{prog}-{thread}-untrusted/package-0.csv")
+        prog = os.path.basename(tasks[0]["executable"])
+
+        for thread in tasks[0].get("num_threads", [0]):
+            file = os.path.join(data, f"{prog}-{thread}/package-0.csv")
             df = pd.read_csv(file)
-    
+
             plt.plot(df["relative_time"] / 1e9, df["energy (microjoule)"] / 1e6, label=f"# {thread} thr.")
-    
+
         plt.title("Core energy")
         plt.xlabel("Execution time (s)")
         plt.ylabel("Energy (Joule)")
@@ -65,22 +65,66 @@ def _(data, os, pd, plt, tasks):
 
 
 @app.cell
-def _(data, os, pd, plt, prog, threads):
-    def _():
-        for thread in threads:
-            file = os.path.join(data, f"{prog}-{thread}-untrusted/deep-trace/package-0.csv")
+def _(mo):
+    mo.md(r"""# Energy comparison""")
+    return
+
+
+@app.cell
+def _(data, os, pd, plt, tasks):
+    def _ ():
+        prog = os.path.basename(tasks[0]["executable"])
+
+        for thread in tasks[0].get("num_threads", [1]):
+            file = os.path.join(data, f"{prog}-{thread}/package-0-uncore.csv")
             df = pd.read_csv(file)
 
-            df["relative_time"] = df["timestamp (us)"] - df["timestamp (us)"].loc[0]
-            plt.plot(df["timestamp (us)"] / 1e9, df["energy (microjoule)"] / 1e6, label=f"# {thread} thr.")
+            plt.plot(df["relative_time"] / 1e9, df["energy (microjoule)"] / 1e6, label=f"# {thread} thr.")
+
+        for thread in tasks[0].get("num_threads", [0]):
+            for size in tasks[0].get("enclave_size", ["64M"]):
+                for storage in tasks[0].get("storage_type", ["untrusted"]):
+                    file = os.path.join(data, f"sgx-{prog}-{thread}-{size}-{storage}/package-0-uncore.csv")
+            df = pd.read_csv(file)
+
+            plt.plot(df["relative_time"] / 1e9, df["energy (microjoule)"] / 1e6, label=f"# sgx-{thread} thr.  {size} {storage}")
 
         plt.title("Core energy")
         plt.xlabel("Execution time (s)")
         plt.ylabel("Energy (Joule)")
-        plt.legend()
+        plt.legend(loc="upper right")
         plt.grid()
-        return plt.show()
+        plt.show()
 
+    _()
+    return
+
+
+@app.cell
+def _(data, os, pd, plt, tasks):
+    def _ ():
+        prog = os.path.basename(tasks[1]["executable"])
+
+        for thread in tasks[1].get("num_threads", [1]):
+            file = os.path.join(data, f"{prog}-{thread}/package-0-uncore.csv")
+            df = pd.read_csv(file)
+
+            plt.plot(df["relative_time"] / 1e9, df["energy (microjoule)"] / 1e6, label=f"# {thread} thr.")
+
+        for thread in tasks[1].get("num_threads", [1]):
+            for size in tasks[1].get("enclave_size", ["64M"]):
+                for storage in tasks[1].get("storage_type", ["untrusted"]):
+                    file = os.path.join(data, f"sgx-{prog}-{thread}-{size}-{storage}/package-0-uncore.csv")
+            df = pd.read_csv(file)
+
+            plt.plot(df["relative_time"] / 1e9, df["energy (microjoule)"] / 1e6, label=f"# sgx-{thread} thr.  {size} {storage}")
+
+        plt.title("Core energy")
+        plt.xlabel("Execution time (s)")
+        plt.ylabel("Energy (Joule)")
+        plt.legend(loc="upper right")
+        plt.grid()
+        plt.show()
 
     _()
     return
