@@ -48,22 +48,23 @@ This is needed if you develop on a non-sgx machine.
 ### Running
 ```sh
 ./enclave-benchmark -h
-A CLI app to run benchmarks for Gramine applications
+A cli app to run benchmarks for Gramine application
 
 Usage: enclave-benchmark [OPTIONS] --config <CONFIG>
 
 Options:
   -v...                  Turn debugging information on
   -c, --config <CONFIG>  Path to configuration file
-      --force            Remove previous results directory (if it exists)
+      --force            Remove previous results directory (if exists)
+      --aggregate        Aggregate results from samples. Creates an <output_directory>/aggregated
   -h, --help             Print help
   -V, --version          Print version
-
 ```
+
 Run an example workload with:
 
 ```sh
-sudo ./enclave-benchmark -v -c examples/iobound.toml
+sudo ./enclave-benchmark -v -c examples/iobound.toml --aggregate
 ```
 
 #### Troubleshooting

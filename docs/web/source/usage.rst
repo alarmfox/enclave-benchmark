@@ -45,6 +45,7 @@ The application needs to be run always with **root** privileges.
     -v...                  Turn debugging information on
     -c, --config <CONFIG>  Path to configuration file
         --force            Remove previous results directory (if exists)
+        --aggregate        Aggregate results from samples. Creates an <output_directory>/aggregated
     -h, --help             Print help
     -V, --version          Print version
 
