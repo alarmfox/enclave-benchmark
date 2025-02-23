@@ -1,6 +1,11 @@
 use collector::DefaultCollector;
 use common::{GlobalParams, Task};
 use profiler::Profiler;
+use pyo3::{
+  ffi::c_str,
+  types::{PyAnyMethods, PyModule},
+  Py, PyAny, PyResult, Python,
+};
 use serde::Deserialize;
 use std::{
   env,
@@ -46,6 +51,13 @@ struct Cli {
     help = "Remove previous results directory (if exists)"
   )]
   force: bool,
+
+  #[arg(
+    long,
+    default_value = "false",
+    help = "Aggregate results from samples. Creates an <output_directory>/aggregated"
+  )]
+  aggregate: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -75,8 +87,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   if env::var_os("EB_SKIP_SGX").is_some_and(|v| v == "1") {
     warn!("EB_SKIP_SGX is set; skipping SGX execution");
   }
-  let config = fs::read_to_string(cli.config)?;
+  let config = fs::read_to_string(&cli.config)?;
   let config = toml::from_str::<Config>(&config)?;
+  let output_directory = config.globals.output_directory.clone();
 
   if cli.force {
     warn!("force specified; deleting previous results directory...");
@@ -117,6 +130,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       break;
     }
     profiler.profile(task)?;
+  }
+
+  if cli.aggregate {
+    Python::with_gil(|py| -> PyResult<()> {
+      let aggregate_script = c_str!(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/dev/aggregate.py"
+      )));
+
+      let output_directory = output_directory.join("aggregated");
+      info!(
+        "aggregating results in {:?}. This may take some time...",
+        output_directory
+      );
+      let aggregate_fn: Py<PyAny> =
+        PyModule::from_code(py, aggregate_script, c_str!(""), c_str!(""))?
+          .getattr("aggregate")?
+          .into();
+
+      aggregate_fn.call1(py, (cli.config, output_directory))?;
+
+      Ok(())
+    })
+    .unwrap();
   }
 
   Ok(())

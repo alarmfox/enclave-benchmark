@@ -167,7 +167,7 @@ def process_experiment(config: dict, task: str, thread: int, size: str = None, s
 
     n = config["globals"]["sample_size"]
     input_directory = config["globals"]["output_directory"]
-    deep_trace = config["globals"]["deep_trace"]
+    deep_trace = config["globals"].get("deep_trace", False)
     output_directory = config["globals"]["aggregated_directory"]
     energy_files = config["globals"]["energy_files"]
 
@@ -232,7 +232,7 @@ def aggregate(input_file: str, output_directory: str) -> None:
 
     if SKIP_SGX:
         print("Skipped SGX parsing")
-        sys.exit(0)
+        return
 
     # Process gramine SGX tasks
     for task in tasks:
