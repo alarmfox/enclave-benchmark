@@ -106,19 +106,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.globals.extra_perf_events,
   ));
 
-  let profiler = Profiler::new(
+  let profiler = Arc::new(Profiler::new(
     config.globals.output_directory,
     config.globals.debug,
     collector.clone(),
-  )?;
+  )?);
 
   let collector = collector.clone();
   let stop = Arc::new(AtomicBool::new(false));
   {
     let stop = stop.clone();
     let collector = collector.clone();
+    let profiler = profiler.clone();
     ctrlc::set_handler(move || {
       info!("Received stop signal. Closing existing threads... ");
+      profiler.stop();
       collector.clone().stop();
       stop.store(true, Ordering::Relaxed);
     })

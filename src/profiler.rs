@@ -2,7 +2,10 @@ use std::{
   collections::HashMap,
   fs::{self, create_dir, create_dir_all},
   path::{Path, PathBuf},
-  sync::Arc,
+  sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+  },
 };
 
 use handlebars::Handlebars;
@@ -45,6 +48,7 @@ pub struct Profiler {
   output_directory: PathBuf,
   collector: Arc<DefaultCollector>,
   debug: bool,
+  stop: AtomicBool,
 }
 
 impl Profiler {
@@ -69,6 +73,7 @@ impl Profiler {
       output_directory,
       debug,
       collector,
+      stop: AtomicBool::new(false),
     })
   }
 
@@ -183,9 +188,12 @@ impl Profiler {
     let program_name = program_name.file_name().unwrap().to_str().unwrap();
     let task_path = self.output_directory.join(program_name);
 
-    for threads in task.num_threads.clone() {
+    'outer: for threads in task.num_threads.clone() {
       for enclave_size in &task.enclave_size {
         for storage_type in &task.storage_type {
+          if self.stop.load(Ordering::Relaxed) {
+            break 'outer;
+          }
           let span = span!(
             Level::TRACE,
             "sgx_execution",
@@ -254,6 +262,9 @@ impl Profiler {
     }
 
     for threads in task.num_threads.clone() {
+      if self.stop.load(Ordering::Relaxed) {
+        break;
+      }
       let span = span!(
         Level::TRACE,
         "non_sgx_execution",
@@ -270,6 +281,10 @@ impl Profiler {
       self.collector.clone().attach(experiment_config)?;
     }
     Ok(())
+  }
+
+  pub fn stop(&self) {
+    self.stop.store(true, Ordering::Relaxed);
   }
 }
 
