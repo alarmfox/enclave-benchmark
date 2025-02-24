@@ -23,7 +23,7 @@ env = { OMP_NUM_THREADS = "{{ num_threads }}" }
 # [[tasks]]
 # executable = "/usr/bin/bonnie++"
 # # WARNING: PUT THE CURRENT USER INSTEAD OF <USER>
-# args = ["-d", "{{ output_directory }}", "-q", "-u", "giuseppe", "-r", "{{ ram_size }}"]
+# args = ["-d", "{{ output_directory }}", "-q", "-u", "<USER>"]
 # storage_type = ["encrypted", "untrusted"]
 # enclave_size = ["1G"]
 # num_threads = [4]
