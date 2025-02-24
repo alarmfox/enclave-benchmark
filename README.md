@@ -13,6 +13,13 @@ git clone https://github.com/alarmfox/enclave-benchmark.git
 cd enclave-benchmark
 ```
 
+Or download the release from here https://github.com/alarmfox/enclave-benchmark/releases/tag/v0.1.0
+```
+curl -fsSLO https://github.com/alarmfox/enclave-benchmark/archive/refs/tags/v0.1.0.tar.gz
+tar xvf v0.1.0.tar.gz
+cd enclave-benchmark-0.1.0/
+```
+
 Make the script executable and run it.
 
 ```sh
@@ -64,7 +71,7 @@ Options:
 Run an example workload with:
 
 ```sh
-sudo ./enclave-benchmark -v -c examples/iobound.toml --aggregate
+sudo ./enclave-benchmark -v -c examples/iobound.toml
 ```
 
 #### Troubleshooting
