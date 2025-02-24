@@ -15,6 +15,7 @@ monitoring in 3 threads:
   * disks read/write;
   * system read/write;
   * kmalloc/kmem;
+  * mm-page;
 
 The application entry point is a `toml` file that contains a list of programs and general
 settings. For example, it looks like:
@@ -29,11 +30,11 @@ settings. For example, it looks like:
   deep_trace = true
 
   [[tasks]]
-  executable = "examples/nbody/build/nbody"
-  args = ["--bodies", "16", "--iterations", "4"]
+  executable = "/usr/bin/sysbench"
+  args = ["--threads={{ num_threads }}", "cpu", "run"]
   enclave_size = ["1G"]
   num_threads = [1, 2, 4]
-  env = { OMP_NUM_THREADS = "{{num_threads}}" }
+  env = { OMP_NUM_THREADS = "{{ num_threads }}" }
 
   [[tasks]]
   executable = "/bin/dd"
@@ -144,7 +145,6 @@ inspected with the following program.
 
     return 0;
   }
-
 
 Extra metrics
 ^^^^^^^^^^^^^

@@ -15,11 +15,11 @@ Example files are stored in the `examples` directory. Below `examples/full.toml`
   deep_trace = true
 
   [[tasks]]
-  executable = "examples/nbody/build/nbody"
-  args = ["--bodies", "16", "--iterations", "4"]
+  executable = "/usr/bin/sysbench"
+  args = ["--threads={{ num_threads }}", "cpu", "run"]
   enclave_size = ["1G"]
   num_threads = [1, 2, 4]
-  env = { OMP_NUM_THREADS = "{{num_threads}}" }
+  env = { OMP_NUM_THREADS = "{{ num_threads }}" }
 
   [[tasks]]
   executable = "/bin/dd"
