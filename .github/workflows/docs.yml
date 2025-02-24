@@ -49,7 +49,7 @@ jobs:
           pip install -r docs/web/requirements.txt 
           bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/bpf/vmlinux.h
     - name: Sphinx Build HTML
-      run: python ./dev/generate_docs.py . docs/web/
+      run: python ./dev/generate_docs.py . docs/
     - name: Upload artifacts
       id: deployment
       uses: actions/upload-pages-artifact@v3
