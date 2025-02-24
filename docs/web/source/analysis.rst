@@ -211,7 +211,29 @@ This figure (generate from ``deep-trace/trace.csv``) presents two histograms ill
   :width: 400
   :alt: Sysbench executed without Gramine with 8 threads.
 
-  Sysbench executed without Gramine with 8 threadss.
+  Sysbench executed without Gramine with 8 threads.
+
+
+Following plots represents execution for the I/O bound test, Allocations, read and 
+writes are at the beginning of the execution both for Gramine and non Gramine app.
+
+.. figure:: ./figures/dd-128M-1-encrypted.png
+  :width: 400
+  :alt: dd executed using encrypted storage in Gramine with 128M
+
+  dd executed using encrypted storage in Gramine with 128M
+
+.. figure:: ./figures/dd-128M-1-untrusted.png
+  :width: 400
+  :alt: dd executed using unencrypted storage in Gramine 64M
+
+  dd executed using unencrypted storage in Gramine 64M
+
+.. figure:: ./figures/dd-1-no-sgx.png
+  :width: 400
+  :alt: dd executed without Gramine
+
+  dd executed without Gramine
 
 Disk write analysis
 ~~~~~~~~~~~~~~~~~~~
@@ -250,7 +272,13 @@ when an enclave starts the execution, TLBs and Caches are flushed.
 
   Cache misses for sysbench application
 
-Other counters like branch-misses and cache-references are balanced between new applications
+.. figure:: ./figures/cache-references-sgx-sysbench-1G.png
+  :width: 400
+  :alt: Cache references for sysbench application
+
+  Cache references for sysbench application
+
+Other counters like branch-misses and branch-loads are balanced between new applications
 
 .. figure:: ./figures/branch-misses-sgx-sysbench-1G.png
   :width: 400
@@ -258,8 +286,8 @@ Other counters like branch-misses and cache-references are balanced between new 
 
   Branch misses for sysbench application
 
-.. figure:: ./figures/cache-references-sgx-sysbench-1G.png
+.. figure:: ./figures/branch-loads-sgx-sysbench-1G.png
   :width: 400
-  :alt: Cache references for sysbench application
+  :alt: Branch loads for sysbench application
 
-  Cache references for sysbench application
+  Branch loads for sysbench application
