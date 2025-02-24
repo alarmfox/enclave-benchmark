@@ -75,7 +75,7 @@ def _(data, pd, plt):
         memory_events = ["mm-page-alloc", "mm-page-free", "kmalloc", "kfree"]
 
         fig, (ax_sys, ax_mem) = plt.subplots(2, 1, sharex=True, figsize=(12, 10))
-        title = f"{app}-{enclave} w/ {threads} thr {storage}" if sgx_suffix != "" else f"{app} w/out sgx"
+        title = f"{app}-{enclave} w/ {threads} threads {storage}" if sgx_suffix != "" else f"{app} {threads} threads w/out sgx"
         fig.suptitle(title)
         bins = 100
 
