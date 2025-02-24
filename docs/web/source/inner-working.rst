@@ -197,6 +197,67 @@ are explained in https://gramine.readthedocs.io/en/stable/performance.html.
   # of async signals:  0
 
 
+Disk Access Pattern Calculation
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The following C code demonstrates how disk access patterns are calculated by comparing
+the starting sector of the current I/O request with the ending sector of the previous
+request. This is used in the eBPF code.
+
+.. note::
+
+  Disk access pattern is taken from here https://github.com/eunomia-bpf/bpf-developer-tutorial/tree/main/src/17-biopattern
+
+
+.. code-block:: c
+
+    SEC("tracepoint/block/block_rq_complete")
+    int handle__block_rq_complete(struct trace_event_raw_block_rq_completion *ctx) {
+      struct disk_counter *counterp, zero = {};
+      sector_t sector;
+      u32 nr_sector;
+      u32 dev;
+      __u32 ev_type = (ctx->rwbs[0] == 'R') ? EVENT_READ_DISK : EVENT_WRITE_DISK;
+  
+      if (deep_trace && snd_trace_event(ev_type)) {
+          return 1;
+      }
+  
+      sector = BPF_CORE_READ(ctx, sector);
+      nr_sector = BPF_CORE_READ(ctx, nr_sector);
+      dev = BPF_CORE_READ(ctx, dev);
+  
+      counterp = bpf_map_lookup_or_try_init(&counters, &dev, &zero);
+      if (!counterp)
+          return 0;
+      if (counterp->last_sector) {
+          if (counterp->last_sector == sector)
+              __sync_fetch_and_add(&counterp->sequential, 1);
+          else
+              __sync_fetch_and_add(&counterp->random, 1);
+          __sync_fetch_and_add(&counterp->bytes, nr_sector * 512);
+      }
+      counterp->last_sector = sector + nr_sector;
+      return 0;
+    }
+
+1. **Extracting Request Data**:
+   - The starting sector (`sector`), the number of sectors (`nr_sector`), and the device identifier (`dev`) are read from the context using the `BPF_CORE_READ` macro.
+   
+2. **Maintaining Disk Counters**:
+   - The code uses a BPF map to retrieve or initialize a `disk_counter` structure for each device.
+   - This structure tracks the last processed sector (`last_sector`), as well as counters for sequential and random disk accesses, and the total number of bytes processed.
+   
+3. **Determining the Access Pattern**:
+   - If there is a previously recorded sector (`last_sector` is non-zero), the code compares it with the current `sector`.
+   - If they are equal, it increments the sequential access counter.
+   - Otherwise, it increments the random access counter.
+   - The total bytes processed are updated by multiplying the number of sectors by 512 (bytes per sector).
+
+4. **Updating the Last Processed Sector**:
+   - The `last_sector` field is updated to `sector + nr_sector` after each I/O request, which serves as t
+
+
 .. index:: Perf
 
 Performance counters

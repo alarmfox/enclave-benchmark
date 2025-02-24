@@ -18,7 +18,7 @@ def _(__file__):
     print(project_root)
     os.chdir(project_root)
 
-    config = "demo-result/config.toml"
+    config = "data/demo-result2/config.toml"
 
     # load experiment params
     config = toml.load(config)
@@ -103,7 +103,7 @@ def _(data, pd, plt):
         fname = f"{app}-{enclave}-{threads}-{storage}" if sgx_suffix != "" else f"{app}-{threads}-no-sgx"
         plt.savefig(f"figures/{fname}.png")
         plt.show()
-    
+
     deep_trace_analysis("dd", 1, "128M", "encrypted")
     deep_trace_analysis("dd", 1, "128M", "untrusted")
     deep_trace_analysis("dd", 1)
@@ -135,12 +135,13 @@ def _(data, pd, plt):
         plt.title(f"{app} {param}")
         plt.xlabel("Experiment")
         plt.ylabel(param)
-        plt.xticks(ticks, labels, rotation=45,ha='right')
+        plt.xticks(ticks, labels, rotation=45, ha='right')
         fname = f"{param}-sgx-{app}-{size}"
+        plt.tight_layout()
         plt.savefig(f"figures/{fname}.png")
         plt.legend()
         plt.show()
-    
+
     cmp_perf_param("sysbench", "cache-misses", data["sysbench"]["num_threads"], "1G")
     cmp_perf_param("sysbench", "cpu-cycles", data["sysbench"]["num_threads"], "1G")
     cmp_perf_param("sysbench", "cache-references", data["sysbench"]["num_threads"], "1G")
@@ -157,7 +158,7 @@ def _(np, pd, plt):
         experiments = ["encrypted", "untrusted"]
         seq_vals = []
         rnd_vals = []
-    
+
         for s in experiments:
             fname = f"aggregated/sgx-{app}-{threads}-{enclave}-{s}/io.csv"
             df = pd.read_csv(fname, index_col=0)
@@ -166,7 +167,7 @@ def _(np, pd, plt):
 
         indices = np.arange(len(experiments))
         bar_width = 0.35  # width of each bar
-    
+
         plt.bar(indices - bar_width/2, seq_vals, width=bar_width, label="Sequential Writes (%)")
         plt.bar(indices + bar_width/2, rnd_vals, width=bar_width, label="Random Writes (%)")
         # Set x-axis tick positions and labels
@@ -176,6 +177,7 @@ def _(np, pd, plt):
         plt.title("Disk Write Comparison")
         plt.legend()
         fname = f"disk_write-sgx-{app}-{enclave}"
+        plt.tight_layout()
         plt.savefig(f"figures/{fname}.png")
         plt.show()
 
@@ -201,9 +203,9 @@ def _(data, os, pd, plt):
             "uncore": {"color": "green",  "alpha": 0.5 },
             "dram": {"color": "green",  "alpha": 0.8 },
         }
-   
+
         title = f"{app}-{enclave} w/ {threads} thr {storage}" if sgx_suffix != "" else f"{app} w/out sgx"
-    
+
         plt.title(title)
         bins = 10000
 
@@ -219,21 +221,21 @@ def _(data, os, pd, plt):
         plt.ylabel("Energy (J)")
         plt.xlabel("Time (s)")
         plt.legend()
-
+        plt.tight_layout()
         plt.show()
 
     def plot_energy() -> None:
         for size in data["dd"]["enclave_size"]:
             energy_analysis("dd", 1, size, "encrypted")
             energy_analysis("dd", 1, size, "untrusted")   
-    
+
         energy_analysis("dd", 1)
-    
+
         for thread in data["sysbench"]["num_threads"]:
             energy_analysis("sysbench", thread, "1G", "untrusted")
             energy_analysis("sysbench", thread)
 
-    plot_energy()
+
     return energy_analysis, plot_energy
 
 

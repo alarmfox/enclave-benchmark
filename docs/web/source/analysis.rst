@@ -237,3 +237,29 @@ This bar chart compares the percentage of sequential and random disk writes betw
   
   Disk write analysis for an enclave 64Mb size
 
+Perf analysis
+~~~~~~~~~~~~~
+The following plots compares results from the ``perf`` command. Since perf reads CPU 
+counters results are shown for the ``sysbench`` application.
+Cache misses are very high during SGX execution. This is highly due to the fact that 
+when an enclave starts the execution, TLBs and Caches are flushed.
+
+.. figure:: ./figures/cache-misses-sgx-sysbench-1G.png
+  :width: 400
+  :alt: Cache misses for sysbench application
+
+  Cache misses for sysbench application
+
+Other counters like branch-misses and cache-references are balanced between new applications
+
+.. figure:: ./figures/branch-misses-sgx-sysbench-1G.png
+  :width: 400
+  :alt: Branch misses for sysbench application
+
+  Branch misses for sysbench application
+
+.. figure:: ./figures/cache-references-sgx-sysbench-1G.png
+  :width: 400
+  :alt: Cache references for sysbench application
+
+  Cache references for sysbench application
