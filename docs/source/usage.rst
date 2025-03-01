@@ -71,6 +71,7 @@ The `[globals]` section defines settings that apply to all benchmark runs.
 
 - **energy_sample_interval** (string)  
   Defines the interval at which energy consumption is sampled. Must be specified with a time unit (e.g., `"250ms"` for 250 milliseconds).
+  The kernel updates values every `"500us"`. Defaults to `"500ms"`.
 
 - **debug** (boolean)  
   If `true`, enables debug logging for more detailed output.
